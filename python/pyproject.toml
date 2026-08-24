@@ -1,0 +1,17 @@
+[project]
+name = "rpl-search"
+version = "0.1.0"
+description = "RPL vector search and embeddings prototype"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "transformers>=4.48.0",
+    "sentence-transformers>=3.4.0",
+    "rich>=13.0.0",
+    "tqdm>=4.66.0",
+    "boto3>=1.34.0",
+    "fastapi>=0.115.0",
+    "uvicorn>=0.30.0",
+    "numpy>=1.26.0",
+]
+
