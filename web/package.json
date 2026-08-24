@@ -1,0 +1,11 @@
+{
+  "name": "rpl-rrf-web",
+  "version": "1.0.0",
+  "description": "RPL Hybrid RRF Search Web Interface (Vanilla JS + Bun)",
+  "main": "server.ts",
+  "scripts": {
+    "start": "bun run server.ts",
+    "dev": "bun --watch server.ts"
+  },
+  "dependencies": {}
+}
