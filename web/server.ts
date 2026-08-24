@@ -95,10 +95,21 @@ function renderMedicinePage(med: any): string {
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Roboto:ital,wght@0,100..900;1,100..900&display=swap" rel="stylesheet">
+  <script>
+    function handleBack(e) {
+      if (e) e.preventDefault();
+      if (window.history.length > 1) {
+        window.history.back();
+      } else {
+        const q = sessionStorage.getItem("last_search_query");
+        window.location.href = q ? "/?q=" + encodeURIComponent(q) : "/";
+      }
+    }
+  </script>
 </head>
 <body>
   <div class="single-medicine-main">
-    <p class="back-link"><a href="/">&larr; Powrót do wyszukiwarki</a></p>
+    <p class="back-link"><a href="/" onclick="handleBack(event)">&larr; Powrót do wyszukiwarki</a></p>
 
     <div class="single-med-header">
       <div class="header-left">
@@ -279,8 +290,24 @@ function renderMedicinePage(med: any): string {
       </div>
     </div>
 
-    <p class="back-link-bottom"><a href="/">&larr; Powrót na stronę główną</a></p>
+    <p class="back-link-bottom"><a href="/" onclick="handleBack(event)">&larr; Powrót na stronę główną</a></p>
+
+    <footer class="app-footer">
+      <p id="dbStatsText">Baza danych: wczytywanie...</p>
+    </footer>
   </div>
+
+  <script>
+    fetch('/api/stats')
+      .then(r => r.json())
+      .then(d => {
+        const el = document.getElementById('dbStatsText');
+        if (el) {
+          el.innerHTML = 'Baza RPL: <b>' + d.total_products_xml.toLocaleString() + '</b> leków &bull; Teksty ChPL: <b>' + d.indexed_fts_morfeusz.toLocaleString() + '</b> &bull; Wektory: <b>' + d.indexed_vectors_vec0.toLocaleString() + '</b>';
+        }
+      })
+      .catch(() => {});
+  </script>
 </body>
 </html>`;
 }

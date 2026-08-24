@@ -1,5 +1,6 @@
 /**
  * Minimal JavaScript Frontend matching reference wyszukiwarka_chpl design.
+ * Preserves search state, results, and query history across navigation.
  */
 
 function slugify(productName) {
@@ -36,60 +37,87 @@ function getAtcIcon(kod_atc) {
   return icons[atcLetter] || "other.svg";
 }
 
-async function performSearch(query) {
+function renderResultsList(results) {
   const resultsContainer = document.getElementById("results");
-  resultsContainer.innerHTML = '<div class="container"><div class="loader"></div></div>';
+  resultsContainer.innerHTML = "";
+
+  if (results && results.length > 0) {
+    results.forEach((item) => {
+      const card = document.createElement("div");
+      card.className = "med-card";
+
+      const firstAtc = item.atc && item.atc[0] ? item.atc[0] : { code: "", display: "" };
+      const iconFile = getAtcIcon(firstAtc.code);
+      const atcGroupText = firstAtc.display || "Brak klasyfikacji ATC";
+
+      const commonName = item.nazwa_powszechnie_stosowana || (item.substancje && item.substancje[0] ? item.substancje[0].nazwa : "");
+      const mocText = item.moc ? ` (${item.moc})` : "";
+
+      let headlineHtml = "";
+      if (item.snippet && item.snippet.trim()) {
+        headlineHtml = `<p class="headline">"${item.snippet}"</p>`;
+      }
+
+      const refundBadge = item.is_refundowany
+        ? '<span style="background:#dcfce7; color:#15803d; font-weight:700; font-size:0.68rem; padding:0.15rem 0.4rem; border-radius:4px; margin-left:0.4rem; border:1px solid #bbf7d0;">Refundowany (NFZ)</span>'
+        : "";
+
+      card.innerHTML = `
+        <div class="ind-med">
+          <div class="ind-med-left">
+            <a href="/lek/${item.id}">
+              <h2>${escapeHtml(item.nazwa_produktu)}${refundBadge}</h2>
+              <p>${escapeHtml(commonName)}${escapeHtml(mocText)} &bull; ${escapeHtml(item.nazwa_postaci_farmaceutycznej || "")}</p>
+            </a>
+          </div>
+          <div class="ind-med-right">
+            <a href="/lek/${item.id}">
+              <img src="/svg/${iconFile}" alt="${escapeHtml(firstAtc.code)}" title="${escapeHtml(firstAtc.display)}" width="44" height="44">
+            </a>
+          </div>
+        </div>
+        <p class="atc-group">${escapeHtml(atcGroupText)}</p>
+        ${headlineHtml}
+      `;
+      resultsContainer.appendChild(card);
+    });
+  } else {
+    resultsContainer.innerHTML = '<p class="empty-msg">Nie znaleziono pasujących leków.</p>';
+  }
+}
+
+async function performSearch(query, useCacheOnly = false) {
+  const resultsContainer = document.getElementById("results");
+
+  // Save current query to session
+  sessionStorage.setItem("last_search_query", query);
+
+  // Check cache first for instant restoration
+  const cachedJson = sessionStorage.getItem("cached_results_" + query);
+  if (cachedJson) {
+    try {
+      const cachedResults = JSON.parse(cachedJson);
+      renderResultsList(cachedResults);
+      if (useCacheOnly) return;
+    } catch (e) {}
+  } else {
+    resultsContainer.innerHTML = '<div class="container"><div class="loader"></div></div>';
+  }
 
   try {
     const response = await fetch(`/api/search?q=${encodeURIComponent(query)}&top_k=15`);
     const data = await response.json();
 
-    resultsContainer.innerHTML = "";
-    if (data && data.results && data.results.length > 0) {
-      data.results.forEach((item) => {
-        const card = document.createElement("div");
-        card.className = "med-card";
-
-        const firstAtc = item.atc && item.atc[0] ? item.atc[0] : { code: "", display: "" };
-        const iconFile = getAtcIcon(firstAtc.code);
-        const atcGroupText = firstAtc.display || "Brak klasyfikacji ATC";
-
-        const commonName = item.nazwa_powszechnie_stosowana || (item.substancje && item.substancje[0] ? item.substancje[0].nazwa : "");
-        const mocText = item.moc ? ` (${item.moc})` : "";
-
-        let headlineHtml = "";
-        if (item.snippet && item.snippet.trim()) {
-          headlineHtml = `<p class="headline">"${item.snippet}"</p>`;
-        }
-
-        const refundBadge = item.is_refundowany
-          ? '<span style="background:#dcfce7; color:#15803d; font-weight:700; font-size:0.68rem; padding:0.15rem 0.4rem; border-radius:4px; margin-left:0.4rem; border:1px solid #bbf7d0;">Refundowany (NFZ)</span>'
-          : '';
-
-        card.innerHTML = `
-          <div class="ind-med">
-            <div class="ind-med-left">
-              <a href="/lek/${item.id}">
-                <h2>${escapeHtml(item.nazwa_produktu)}${refundBadge}</h2>
-                <p>${escapeHtml(commonName)}${escapeHtml(mocText)} &bull; ${escapeHtml(item.nazwa_postaci_farmaceutycznej || "")}</p>
-              </a>
-            </div>
-            <div class="ind-med-right">
-              <a href="/lek/${item.id}">
-                <img src="/svg/${iconFile}" alt="${escapeHtml(firstAtc.code)}" title="${escapeHtml(firstAtc.display)}" width="44" height="44">
-              </a>
-            </div>
-          </div>
-          <p class="atc-group">${escapeHtml(atcGroupText)}</p>
-          ${headlineHtml}
-        `;
-        resultsContainer.appendChild(card);
-      });
+    if (data && data.results) {
+      sessionStorage.setItem("cached_results_" + query, JSON.stringify(data.results));
+      renderResultsList(data.results);
     } else {
       resultsContainer.innerHTML = '<p class="empty-msg">Nie znaleziono pasujących leków.</p>';
     }
   } catch (error) {
-    resultsContainer.innerHTML = '<p class="empty-msg">Wystąpił błąd podczas pobierania danych.</p>';
+    if (!cachedJson) {
+      resultsContainer.innerHTML = '<p class="empty-msg">Wystąpił błąd podczas pobierania danych.</p>';
+    }
     console.error(error);
   }
 }
@@ -99,10 +127,31 @@ function updateURLAndSearch() {
   const query = searchBox.value.trim();
   if (!query) return;
 
-  const newURL = `${window.location.pathname}?q=${encodeURIComponent(query)}`;
-  window.history.pushState({ path: newURL }, "", newURL);
+  const newURL = `/?q=${encodeURIComponent(query)}`;
+  window.history.pushState({ query: query }, "", newURL);
   document.title = `Wyniki dla: "${query}"`;
   performSearch(query);
+}
+
+function restoreState() {
+  const params = new URLSearchParams(window.location.search);
+  let query = params.get("q");
+
+  // Fallback to session query if on root /
+  if (!query && window.location.pathname === "/") {
+    query = sessionStorage.getItem("last_search_query");
+    if (query) {
+      const newURL = `/?q=${encodeURIComponent(query)}`;
+      window.history.replaceState({ query: query }, "", newURL);
+    }
+  }
+
+  if (query) {
+    const searchBox = document.getElementById("searchBox");
+    if (searchBox) searchBox.value = query;
+    document.title = `Wyniki dla: "${query}"`;
+    performSearch(query);
+  }
 }
 
 function escapeHtml(text) {
@@ -116,11 +165,27 @@ function escapeHtml(text) {
     .replace(/'/g, "&#039;");
 }
 
+async function fetchDbStats() {
+  const footerEl = document.getElementById("dbStatsText");
+  if (!footerEl) return;
+  try {
+    const res = await fetch("/api/stats");
+    if (!res.ok) throw new Error("Stats unavailable");
+    const data = await res.json();
+    footerEl.innerHTML = `Baza RPL: <b>${data.total_products_xml.toLocaleString()}</b> leków &bull; Teksty ChPL: <b>${data.indexed_fts_morfeusz.toLocaleString()}</b> &bull; Wektory: <b>${data.indexed_vectors_vec0.toLocaleString()}</b>`;
+  } catch (e) {
+    footerEl.textContent = "Baza danych aktywna";
+  }
+}
+
 window.addEventListener("DOMContentLoaded", () => {
-  const params = new URLSearchParams(window.location.search);
-  const query = params.get("q");
-  if (query) {
-    document.getElementById("searchBox").value = query;
-    performSearch(query);
+  restoreState();
+  fetchDbStats();
+});
+window.addEventListener("popstate", restoreState);
+window.addEventListener("pageshow", (event) => {
+  if (event.persisted) {
+    restoreState();
+    fetchDbStats();
   }
 });

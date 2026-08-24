@@ -537,3 +537,20 @@ tbody tr:nth-child(even) {
 .markdown-body strong {
   color: #1a1a1a;
 }
+
+/* App Footer */
+.app-footer {
+  width: 100%;
+  margin-top: 3rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid #dcdcdc;
+  text-align: center;
+  font-size: 0.76rem;
+  color: var(--text-gray);
+  line-height: 1.5;
+}
+
+.app-footer b {
+  color: var(--primary);
+  font-weight: 700;
+}
