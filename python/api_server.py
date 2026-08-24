@@ -1,0 +1,398 @@
+"""
+FastAPI Backend Server for RPL Hybrid RRF Search Engine.
+Keeps PolDense-400M in GPU VRAM and serves sub-10ms hybrid search queries with FTS5 Morfeusz snippets.
+"""
+
+import os
+import sys
+import json
+import sqlite3
+from typing import List, Dict, Any, Optional
+
+import numpy as np
+import torch
+from fastapi import FastAPI, Query, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from sentence_transformers import SentenceTransformer
+import uvicorn
+
+app = FastAPI(title="RPL Hybrid RRF Search API", version="1.0.0")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+MODEL_NAME = "OPI-PIB/PolDense-400M"
+DB_PATH = "data/rpl.db"
+ATC_MAP_PATH = "data/atc_map.json"
+VEC_EXT_PATH = "extensions/vec0.so"
+MORFEUSZ_EXT_PATH = "extensions/morfeusz.so"
+
+# Global state
+state = {
+    "model": None,
+    "atc_map": {},
+    "db_conn": None,
+    "device": "cuda" if torch.cuda.is_available() else "cpu"
+}
+
+
+def get_db_connection() -> sqlite3.Connection:
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    conn.enable_load_extension(True)
+    conn.load_extension(VEC_EXT_PATH)
+    conn.load_extension(MORFEUSZ_EXT_PATH)
+    conn.enable_load_extension(False)
+    return conn
+
+
+def describe_atc_code(code: str, atc_map: Dict[str, Any]) -> Dict[str, str]:
+    if not code:
+        return {"code": "", "subgroup": "", "group": "", "display": ""}
+    code_clean = code.strip().upper()
+    g = code_clean[0] if code_clean else ""
+    sg = code_clean[:3] if len(code_clean) >= 3 else ""
+
+    g_info = atc_map.get(g, {})
+    g_name = g_info.get("name", "")
+    sg_name = g_info.get("subgroups", {}).get(sg, "")
+
+    display = f"{code_clean}"
+    if sg_name and g_name:
+        display = f"{code_clean} → {sg_name} ({g_name})"
+    elif sg_name:
+        display = f"{code_clean} → {sg_name}"
+    elif g_name:
+        display = f"{code_clean} → {g_name}"
+
+    return {
+        "code": code_clean,
+        "subgroup": sg_name,
+        "group": g_name,
+        "display": display
+    }
+
+
+def get_medicine_metadata(conn: sqlite3.Connection, produkt_id: int, atc_map: Dict[str, Any]) -> Dict[str, Any]:
+    c = conn.cursor()
+    c.execute("""
+        SELECT id, nazwa_produktu, rodzaj_preparatu, nazwa_powszechnie_stosowana, moc,
+               nazwa_postaci_farmaceutycznej, podmiot_odpowiedzialny, typ_procedury,
+               numer_pozwolenia, waznosc_pozwolenia, ulotka, charakterystyka, etykieto_ulotka
+        FROM produkty_lecznicze WHERE id = ?
+    """, (produkt_id,))
+    prod = c.fetchone()
+    if not prod:
+        return {"id": produkt_id, "nazwa_produktu": f"Produkt #{produkt_id}"}
+
+    res = dict(prod)
+
+    # Active substances
+    c.execute("SELECT nazwa_substancji, ilosc_substancji, jednostka_miary_ilosci_substancji FROM substancje_czynne WHERE produkt_id = ?", (produkt_id,))
+    subst = c.fetchall()
+    res["substancje"] = [
+        {"nazwa": s["nazwa_substancji"], "ilosc": s["ilosc_substancji"], "jednostka": s["jednostka_miary_ilosci_substancji"]}
+        for s in subst
+    ]
+    res["substancje_display"] = ", ".join([f"{s['nazwa_substancji']} ({s['ilosc_substancji']} {s['jednostka_miary_ilosci_substancji']})" for s in subst])
+
+    # ATC codes
+    c.execute("SELECT kod_atc FROM kody_atc WHERE produkt_id = ?", (produkt_id,))
+    atc = c.fetchall()
+    res["atc"] = [describe_atc_code(a["kod_atc"], atc_map) for a in atc]
+
+    # Packaging summary
+    c.execute("SELECT count(*) as count, kategoria_dostepnosci FROM opakowania WHERE produkt_id = ? GROUP BY kategoria_dostepnosci", (produkt_id,))
+    pkgs = c.fetchall()
+    res["opakowania_info"] = ", ".join([f"{p['count']} op. ({p['kategoria_dostepnosci']})" for p in pkgs]) or "Brak"
+
+    # Fast refundation check
+    c.execute("""
+        SELECT count(*) FROM opakowania o
+        JOIN refundacja r ON ltrim(o.kod_gtin, '0') = r.kod_gtin_norm
+        WHERE o.produkt_id = ?
+    """, (produkt_id,))
+    refund_count = c.fetchone()[0]
+    res["is_refundowany"] = bool(refund_count > 0)
+
+    return res
+
+
+@app.on_event("startup")
+def startup_event():
+    print(f"Loading PolDense-400M on {state['device']}...")
+    state["model"] = SentenceTransformer(
+        MODEL_NAME,
+        device=state["device"],
+        model_kwargs={
+            "torch_dtype": torch.bfloat16 if state["device"] == "cuda" else torch.float32,
+            "attn_implementation": "sdpa"
+        }
+    )
+    if os.path.exists(ATC_MAP_PATH):
+        with open(ATC_MAP_PATH, "r", encoding="utf-8") as f:
+            state["atc_map"] = json.load(f)
+
+    state["db_conn"] = get_db_connection()
+    print("API Server & PolDense-400M ready!")
+
+
+import boto3
+from botocore.config import Config
+
+s3_client = boto3.client(
+    "s3",
+    endpoint_url="https://s3.waw.io.cloud.ovh.net",
+    region_name="waw",
+    config=Config(s3={"addressing_style": "path"})
+)
+
+
+@app.get("/api/stats")
+def get_stats():
+    conn = state["db_conn"]
+    c = conn.cursor()
+    c.execute("SELECT count(*) FROM produkty_lecznicze")
+    total_products = c.fetchone()[0]
+    c.execute("SELECT count(*) FROM vec_dokumenty")
+    total_vectors = c.fetchone()[0]
+    c.execute("SELECT count(*) FROM fts_dokumenty")
+    total_fts = c.fetchone()[0]
+
+    return {
+        "total_products_xml": total_products,
+        "indexed_vectors_vec0": total_vectors,
+        "indexed_fts_morfeusz": total_fts,
+        "model": MODEL_NAME,
+        "device": state["device"]
+    }
+
+
+@app.get("/api/medicine/{produkt_id}")
+def get_medicine_detail(produkt_id: int):
+    conn = state["db_conn"]
+    atc_map = state["atc_map"]
+    c = conn.cursor()
+
+    meta = get_medicine_metadata(conn, produkt_id, atc_map)
+    if "nazwa_produktu" not in meta:
+        raise HTTPException(status_code=404, detail="Lek nie został znaleziony")
+
+    # Administration routes
+    c.execute("SELECT droga_podania_nazwa FROM drogi_podania WHERE produkt_id = ?", (produkt_id,))
+    meta["drogi_podania"] = [r[0] for r in c.fetchall()]
+
+    # Manufacturers / Importers
+    c.execute("SELECT nazwa_wytworcy_importera, kraj_wytworcy_importera, kraj_eksportu FROM wytworcy WHERE produkt_id = ?", (produkt_id,))
+    meta["wytworcy"] = [dict(r) for r in c.fetchall()]
+
+    # Packaging details
+    c.execute("SELECT opakowanie_id, kod_gtin, kategoria_dostepnosci, skasowane, numer_eu FROM opakowania WHERE produkt_id = ?", (produkt_id,))
+    meta["opakowania"] = [dict(r) for r in c.fetchall()]
+
+    # ChPL Markdown Content
+    chpl_text = ""
+    try:
+        c.execute("SELECT chpl_content FROM fts_dokumenty WHERE produkt_id = ?", (str(produkt_id),))
+        row = c.fetchone()
+        if row and row["chpl_content"]:
+            chpl_text = row["chpl_content"]
+    except Exception:
+        pass
+
+    # If not in SQLite, fetch from S3
+    if not chpl_text:
+        try:
+            s3_key = f"md/{produkt_id}.md"
+            resp = s3_client.get_object(Bucket="plek", Key=s3_key)
+            chpl_text = resp["Body"].read().decode("utf-8", errors="replace")
+        except Exception as e:
+            chpl_text = ""
+
+    meta["chpl_markdown"] = chpl_text
+
+    # Reimbursement data (Refundacja MZ/NFZ)
+    meta["refundacja"] = []
+    try:
+        c.execute("""
+            SELECT
+                o.opakowanie_id,
+                o.kod_gtin,
+                r.typ_listy,
+                r.nazwa_lek_dawka,
+                r.zawartosc_opakowania,
+                r.cena_detaliczna,
+                r.wysokosc_limitu,
+                r.poziom_odplatnosci,
+                r.wysokosc_doplaty,
+                r.zakres_wskazan,
+                r.bezplatny_dziecko_18,
+                r.bezplatny_senior_65,
+                r.bezplatny_ciaza
+            FROM opakowania o
+            JOIN refundacja r ON ltrim(o.kod_gtin, '0') = r.kod_gtin_norm
+            WHERE o.produkt_id = ?
+        """, (produkt_id,))
+        meta["refundacja"] = [dict(r) for r in c.fetchall()]
+    except Exception as e:
+        print(f"Error querying refundacja: {e}")
+
+    meta["is_refundowany"] = len(meta["refundacja"]) > 0
+
+    # Find 3 similar medicines based on vector similarity
+    similar_medicines = []
+    try:
+        c.execute("SELECT embedding FROM vec_dokumenty WHERE produkt_id = ?", (produkt_id,))
+        emb_row = c.fetchone()
+        if emb_row and emb_row["embedding"]:
+            c.execute("""
+                SELECT produkt_id, distance
+                FROM vec_dokumenty
+                WHERE embedding MATCH ? AND k = 10
+            """, (emb_row["embedding"],))
+            matches = c.fetchall()
+            for m in matches:
+                other_id = int(m["produkt_id"])
+                if other_id == produkt_id or other_id == 0:
+                    continue
+                s_meta = get_medicine_metadata(conn, other_id, atc_map)
+                sim_pct = max(0.0, 1.0 - float(m["distance"])) * 100
+                s_meta["similarity_pct"] = round(sim_pct, 1)
+                s_meta["distance"] = float(m["distance"])
+                similar_medicines.append(s_meta)
+                if len(similar_medicines) >= 3:
+                    break
+    except Exception as e:
+        print(f"Error computing similar medicines: {e}")
+
+    meta["podobne_leki"] = similar_medicines
+    return meta
+
+
+@app.get("/api/search")
+def search(
+    q: str = Query(..., description="Query string in natural language"),
+    mode: str = Query("rrf", description="Search mode: 'rrf', 'vec', or 'fts'"),
+    top_k: int = Query(10, ge=1, le=50, description="Number of results"),
+    vec_weight: float = Query(1.0, ge=0.0, le=10.0),
+    fts_weight: float = Query(1.0, ge=0.0, le=10.0),
+    rrf_k: int = Query(60, ge=1, le=200),
+    candidate_pool: int = Query(50, ge=10, le=100)
+):
+    query_clean = q.strip()
+    if not query_clean:
+        return {"query": q, "results": [], "total": 0}
+
+    conn = state["db_conn"]
+    model = state["model"]
+    atc_map = state["atc_map"]
+    c = conn.cursor()
+
+    vec_ranks = {}
+    vec_distances = {}
+
+    fts_ranks = {}
+    fts_scores = {}
+    fts_snippets = {}
+
+    # 1. Dense Vector Search
+    if mode in ["rrf", "vec"]:
+        prefixed_query = f"[query]: {query_clean}"
+        query_vec = model.encode(
+            prefixed_query,
+            convert_to_numpy=True,
+            show_progress_bar=False,
+            normalize_embeddings=True
+        ).astype(np.float32)
+
+        c.execute("""
+            SELECT produkt_id, distance
+            FROM vec_dokumenty
+            WHERE embedding MATCH ? AND k = ?
+        """, (query_vec.tobytes(), candidate_pool))
+
+        for rank, row in enumerate(c.fetchall(), 1):
+            pid = int(row["produkt_id"])
+            vec_ranks[pid] = rank
+            vec_distances[pid] = float(row["distance"])
+
+    # 2. Sparse FTS5 Search with Morfeusz Snippet
+    if mode in ["rrf", "fts"]:
+        # Prepare sanitized FTS query words
+        fts_words = [w for w in query_clean.replace("\"", "").replace("'", "").replace("*", "").split() if len(w) > 1]
+        fts_query = " OR ".join(fts_words) if fts_words else query_clean
+
+        try:
+            c.execute("""
+                SELECT
+                    CAST(produkt_id AS INTEGER) as produkt_id,
+                    rank as fts_score,
+                    snippet(fts_dokumenty, -1, '<mark class="hl">', '</mark>', '...', 35) as fts_snippet
+                FROM fts_dokumenty
+                WHERE fts_dokumenty MATCH ?
+                ORDER BY rank ASC
+                LIMIT ?
+            """, (fts_query, candidate_pool))
+
+            for rank, row in enumerate(c.fetchall(), 1):
+                pid = int(row["produkt_id"])
+                fts_ranks[pid] = rank
+                fts_scores[pid] = float(row["fts_score"])
+                fts_snippets[pid] = row["fts_snippet"]
+        except Exception as e:
+            print(f"FTS Query error: {e}")
+
+    # 3. Combine & Rank
+    all_candidate_ids = set(vec_ranks.keys()) | set(fts_ranks.keys())
+    ranked_items = []
+
+    for pid in all_candidate_ids:
+        r_vec = vec_ranks.get(pid)
+        r_fts = fts_ranks.get(pid)
+
+        if mode == "rrf":
+            score_vec = (vec_weight / (rrf_k + r_vec)) if r_vec else 0.0
+            score_fts = (fts_weight / (rrf_k + r_fts)) if r_fts else 0.0
+            final_score = score_vec + score_fts
+        elif mode == "vec":
+            final_score = (1.0 / (rrf_k + r_vec)) if r_vec else 0.0
+        else:  # mode == "fts"
+            final_score = (1.0 / (rrf_k + r_fts)) if r_fts else 0.0
+
+        ranked_items.append({
+            "produkt_id": pid,
+            "score": final_score,
+            "rank_vec": r_vec,
+            "rank_fts": r_fts,
+            "vec_distance": vec_distances.get(pid),
+            "fts_score": fts_scores.get(pid),
+            "snippet": fts_snippets.get(pid, "")
+        })
+
+    # Sort descending by score
+    ranked_items.sort(key=lambda x: x["score"], reverse=True)
+    top_items = ranked_items[:top_k]
+
+    # Enrich with metadata
+    results = []
+    for item in top_items:
+        meta = get_medicine_metadata(conn, item["produkt_id"], atc_map)
+        meta.update(item)
+        results.append(meta)
+
+    return {
+        "query": query_clean,
+        "mode": mode,
+        "total_results": len(results),
+        "results": results
+    }
+
+
+if __name__ == "__main__":
+    uvicorn.run("api_server:app", host="0.0.0.0", port=8000, reload=False)
