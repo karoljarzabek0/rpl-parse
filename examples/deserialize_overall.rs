@@ -1,7 +1,7 @@
+use rpl_parse::ProduktyLecznicze;
 use std::fs::File;
 use std::io::BufReader;
 use std::time::Instant;
-use rustyy::ProduktyLecznicze;
 
 fn main() {
     let file_path = "data/overall.xml";
@@ -31,7 +31,10 @@ fn main() {
                 println!("\nFirst Product Sample:");
                 println!("  ID: {}", first.id);
                 println!("  Name: {}", first.nazwa_produktu);
-                println!("  Active Substance (Powszechnie Stosowana): {}", first.nazwa_powszechnie_stosowana);
+                println!(
+                    "  Active Substance (Powszechnie Stosowana): {}",
+                    first.nazwa_powszechnie_stosowana
+                );
                 println!("  Form: {}", first.nazwa_postaci_farmaceutycznej);
                 if let Some(ref atc) = first.kody_atc {
                     println!("  ATC Codes: {:?}", atc.kody);
@@ -41,7 +44,9 @@ fn main() {
                     for sub in &active.substancje {
                         println!(
                             "    - {}: {} {}",
-                            sub.nazwa_substancji, sub.ilosc_substancji, sub.jednostka_miary_ilosci_substancji
+                            sub.nazwa_substancji,
+                            sub.ilosc_substancji,
+                            sub.jednostka_miary_ilosci_substancji
                         );
                     }
                 }
