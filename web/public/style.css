@@ -110,7 +110,36 @@ a:hover {
 }
 
 #searchButton:hover {
-  background-color: #23696c;
+  background-color: var(--primary-hover);
+}
+
+.search-options {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  margin-top: 0.6rem;
+  padding-left: 0.2rem;
+}
+
+.filter-refund-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.8rem;
+  color: #4b5563;
+  cursor: pointer;
+  user-select: none;
+}
+
+.filter-refund-label input[type="checkbox"] {
+  accent-color: var(--primary);
+  width: 15px;
+  height: 15px;
+  cursor: pointer;
+}
+
+.filter-refund-label:hover span {
+  color: var(--primary);
 }
 
 .results {

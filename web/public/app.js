@@ -91,14 +91,17 @@ function renderResultsList(results) {
   }
 }
 
-async function performSearch(query, useCacheOnly = false) {
+async function performSearch(query, onlyRefunded = false, useCacheOnly = false) {
   const resultsContainer = document.getElementById("results");
 
-  // Save current query to session
+  // Save current query and filter state to session
   sessionStorage.setItem("last_search_query", query);
+  sessionStorage.setItem("last_search_refunded", onlyRefunded ? "1" : "0");
+
+  const cacheKey = `cached_results_${query}_${onlyRefunded ? "ref" : "all"}`;
 
   // Check cache first for instant restoration
-  const cachedJson = sessionStorage.getItem("cached_results_" + query);
+  const cachedJson = sessionStorage.getItem(cacheKey);
   if (cachedJson) {
     try {
       const cachedResults = JSON.parse(cachedJson);
@@ -110,11 +113,11 @@ async function performSearch(query, useCacheOnly = false) {
   }
 
   try {
-    const response = await fetch(`/api/search?q=${encodeURIComponent(query)}&top_k=15`);
+    const response = await fetch(`/api/search?q=${encodeURIComponent(query)}&only_refunded=${onlyRefunded}&top_k=15`);
     const data = await response.json();
 
     if (data && data.results) {
-      sessionStorage.setItem("cached_results_" + query, JSON.stringify(data.results));
+      sessionStorage.setItem(cacheKey, JSON.stringify(data.results));
       renderResultsList(data.results);
     } else {
       resultsContainer.innerHTML = '<p class="empty-msg">Nie znaleziono pasujących leków.</p>';
@@ -132,30 +135,40 @@ function updateURLAndSearch() {
   const query = searchBox.value.trim();
   if (!query) return;
 
-  const newURL = `/?q=${encodeURIComponent(query)}`;
-  window.history.pushState({ query: query }, "", newURL);
+  const refundCheck = document.getElementById("refundOnlyCheck");
+  const onlyRefunded = refundCheck ? refundCheck.checked : false;
+
+  const newURL = `/?q=${encodeURIComponent(query)}${onlyRefunded ? "&refunded=1" : ""}`;
+  window.history.pushState({ query: query, refunded: onlyRefunded }, "", newURL);
   document.title = `Wyniki dla: "${query}"`;
-  performSearch(query);
+  performSearch(query, onlyRefunded);
 }
 
 function restoreState() {
   const params = new URLSearchParams(window.location.search);
   let query = params.get("q");
+  let refunded = params.get("refunded") === "1";
 
   // Fallback to session query if on root /
   if (!query && window.location.pathname === "/") {
     query = sessionStorage.getItem("last_search_query");
+    refunded = sessionStorage.getItem("last_search_refunded") === "1";
     if (query) {
-      const newURL = `/?q=${encodeURIComponent(query)}`;
-      window.history.replaceState({ query: query }, "", newURL);
+      const newURL = `/?q=${encodeURIComponent(query)}${refunded ? "&refunded=1" : ""}`;
+      window.history.replaceState({ query: query, refunded: refunded }, "", newURL);
     }
+  }
+
+  const refundCheck = document.getElementById("refundOnlyCheck");
+  if (refundCheck) {
+    refundCheck.checked = refunded;
   }
 
   if (query) {
     const searchBox = document.getElementById("searchBox");
     if (searchBox) searchBox.value = query;
     document.title = `Wyniki dla: "${query}"`;
-    performSearch(query);
+    performSearch(query, refunded);
   }
 }
 

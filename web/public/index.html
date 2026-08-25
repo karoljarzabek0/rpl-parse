@@ -16,8 +16,16 @@
     <p class="subtitle">hybrydowa wyszukiwarka semantyczna (RRF)</p>
 
     <form id="searchForm" onsubmit="event.preventDefault(); updateURLAndSearch();">
-      <input type="text" placeholder="Wpisz objawy, nazwę leku lub problem..." id="searchBox" autofocus autocomplete="off" />
-      <button type="submit" id="searchButton">Szukaj</button>
+      <div class="search-input-wrap">
+        <input type="text" placeholder="Wpisz objawy, nazwę leku lub problem..." id="searchBox" autofocus autocomplete="off" />
+        <button type="submit" id="searchButton">Szukaj</button>
+      </div>
+      <div class="search-options">
+        <label class="filter-refund-label">
+          <input type="checkbox" id="refundOnlyCheck" onchange="updateURLAndSearch()" />
+          <span>Tylko leki refundowane (NFZ)</span>
+        </label>
+      </div>
     </form>
 
     <div class="results" id="results"></div>

@@ -301,11 +301,12 @@ def get_medicine_detail(produkt_id: int):
 def search(
     q: str = Query(..., description="Query string in natural language"),
     mode: str = Query("rrf", description="Search mode: 'rrf', 'vec', or 'fts'"),
+    only_refunded: bool = Query(False, description="Filter only reimbursed medicines (NFZ)"),
     top_k: int = Query(10, ge=1, le=50, description="Number of results"),
     vec_weight: float = Query(1.0, ge=0.0, le=10.0),
     fts_weight: float = Query(1.0, ge=0.0, le=10.0),
     rrf_k: int = Query(60, ge=1, le=200),
-    candidate_pool: int = Query(50, ge=10, le=100)
+    candidate_pool: int = Query(50, ge=10, le=200)
 ):
     query_clean = q.strip()
     if not query_clean:
@@ -316,9 +317,10 @@ def search(
     atc_map = state["atc_map"]
     c = conn.cursor()
 
+    effective_pool = candidate_pool * 2 if only_refunded else candidate_pool
+
     vec_ranks = {}
     vec_distances = {}
-
     fts_ranks = {}
     fts_scores = {}
     fts_snippets = {}
@@ -337,7 +339,7 @@ def search(
             SELECT produkt_id, distance
             FROM vec_dokumenty
             WHERE embedding MATCH ? AND k = ?
-        """, (query_vec.tobytes(), candidate_pool))
+        """, (query_vec.tobytes(), effective_pool))
 
         for rank, row in enumerate(c.fetchall(), 1):
             pid = int(row["produkt_id"])
@@ -360,7 +362,7 @@ def search(
                 WHERE fts_dokumenty MATCH ?
                 ORDER BY rank ASC
                 LIMIT ?
-            """, (fts_query, candidate_pool))
+            """, (fts_query, effective_pool))
 
             for rank, row in enumerate(c.fetchall(), 1):
                 pid = int(row["produkt_id"])
@@ -399,18 +401,22 @@ def search(
 
     # Sort descending by score
     ranked_items.sort(key=lambda x: x["score"], reverse=True)
-    top_items = ranked_items[:top_k]
 
-    # Enrich with metadata
+    # Enrich with metadata & apply only_refunded filter
     results = []
-    for item in top_items:
+    for item in ranked_items:
         meta = get_medicine_metadata(conn, item["produkt_id"], atc_map)
+        if only_refunded and not meta.get("is_refundowany"):
+            continue
         meta.update(item)
         results.append(meta)
+        if len(results) >= top_k:
+            break
 
     return {
         "query": query_clean,
         "mode": mode,
+        "only_refunded": only_refunded,
         "total_results": len(results),
         "results": results
     }
