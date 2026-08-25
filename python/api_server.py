@@ -7,6 +7,7 @@ import os
 import sys
 import json
 import sqlite3
+import re
 from typing import List, Dict, Any, Optional
 
 import numpy as np
@@ -528,6 +529,86 @@ def search(
         "only_refunded": only_refunded,
         "total_results": len(results),
         "results": results
+    }
+
+
+def normalize_query_str(text: str) -> str:
+    if not text:
+        return ""
+    t = text.lower().strip()
+    trans = str.maketrans({
+        'ą': 'a', 'ć': 'c', 'ę': 'e', 'ł': 'l', 'ń': 'n',
+        'ó': 'o', 'ś': 's', 'ź': 'z', 'ż': 'z',
+        'ä': 'a', 'ö': 'o', 'ü': 'u', 'ß': 'ss',
+        'é': 'e', 'è': 'e', 'á': 'a', 'à': 'a'
+    })
+    t_unaccent = t.translate(trans)
+    t_clean = re.sub(r'[^a-z0-9\s]', ' ', t_unaccent)
+    return re.sub(r'\s+', ' ', t_clean).strip()
+
+
+@app.get("/api/suggestions")
+def get_suggestions(
+    q: str = Query(..., min_length=1, max_length=100, description="Query prefix"),
+    limit: int = Query(8, ge=1, le=20, description="Max suggestions to return")
+):
+    norm = normalize_query_str(q)
+    if not norm:
+        return {"query": q, "suggestions": []}
+
+    conn = state["db_conn"]
+    c = conn.cursor()
+
+    c.execute("""
+        SELECT DISTINCT fraza, kategoria, podtytul, payload_id, popularnosc,
+               CASE 
+                   WHEN fraza_norm = ? THEN 0
+                   WHEN fraza_norm LIKE ? THEN 1
+                   ELSE 2
+               END as match_priority
+        FROM podpowiedzi
+        WHERE fraza_norm LIKE ? OR fraza_norm LIKE ?
+        ORDER BY match_priority ASC, popularnosc DESC, length(fraza) ASC
+        LIMIT ?
+    """, (norm, f"{norm}%", f"{norm}%", f"% {norm}%", limit))
+
+    rows = c.fetchall()
+    suggestions = []
+    seen = set()
+
+    icon_map = {
+        "lek": "💊",
+        "substancja": "🧪",
+        "atc": "🏷️",
+        "objaw": "🩺"
+    }
+
+    category_labels = {
+        "lek": "Lek",
+        "substancja": "Substancja",
+        "atc": "Klasyfikacja ATC",
+        "objaw": "Objaw / Wskazanie"
+    }
+
+    for r in rows:
+        fraza = r["fraza"]
+        kat = r["kategoria"]
+        if (fraza, kat) in seen:
+            continue
+        seen.add((fraza, kat))
+
+        suggestions.append({
+            "text": fraza,
+            "type": kat,
+            "type_label": category_labels.get(kat, kat),
+            "icon": icon_map.get(kat, "🔍"),
+            "subtext": r["podtytul"],
+            "payload_id": r["payload_id"]
+        })
+
+    return {
+        "query": q,
+        "suggestions": suggestions
     }
 
 

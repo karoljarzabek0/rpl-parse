@@ -197,7 +197,152 @@ async function fetchDbStats() {
   }
 }
 
+let debounceTimer = null;
+let currentSuggestions = [];
+let activeSuggestionIndex = -1;
+
+function initAutocomplete() {
+  const searchBox = document.getElementById("searchBox");
+  const dropdown = document.getElementById("suggestionsDropdown");
+  if (!searchBox || !dropdown) return;
+
+  searchBox.addEventListener("input", (e) => {
+    const val = searchBox.value.trim();
+    clearTimeout(debounceTimer);
+    activeSuggestionIndex = -1;
+
+    if (val.length < 2) {
+      hideSuggestions();
+      return;
+    }
+
+    debounceTimer = setTimeout(() => {
+      fetchSuggestions(val);
+    }, 120);
+  });
+
+  searchBox.addEventListener("keydown", (e) => {
+    if (!dropdown || dropdown.style.display === "none" || currentSuggestions.length === 0) {
+      return;
+    }
+
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      activeSuggestionIndex = (activeSuggestionIndex + 1) % currentSuggestions.length;
+      updateActiveSuggestion();
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      activeSuggestionIndex = (activeSuggestionIndex - 1 + currentSuggestions.length) % currentSuggestions.length;
+      updateActiveSuggestion();
+    } else if (e.key === "Enter") {
+      if (activeSuggestionIndex >= 0 && activeSuggestionIndex < currentSuggestions.length) {
+        e.preventDefault();
+        selectSuggestion(currentSuggestions[activeSuggestionIndex]);
+      }
+    } else if (e.key === "Escape") {
+      hideSuggestions();
+    }
+  });
+
+  document.addEventListener("click", (e) => {
+    if (!searchBox.contains(e.target) && !dropdown.contains(e.target)) {
+      hideSuggestions();
+    }
+  });
+}
+
+async function fetchSuggestions(query) {
+  const dropdown = document.getElementById("suggestionsDropdown");
+  try {
+    const res = await fetch(`/api/suggestions?q=${encodeURIComponent(query)}&limit=8`);
+    if (!res.ok) return;
+    const data = await res.json();
+    currentSuggestions = data.suggestions || [];
+
+    if (currentSuggestions.length === 0) {
+      hideSuggestions();
+      return;
+    }
+
+    renderSuggestions(currentSuggestions);
+  } catch (err) {
+    hideSuggestions();
+  }
+}
+
+function renderSuggestions(suggestions) {
+  const dropdown = document.getElementById("suggestionsDropdown");
+  if (!dropdown) return;
+
+  dropdown.innerHTML = suggestions
+    .map((item, idx) => {
+      const typeClass = `sug-type-${item.type}`;
+      return `
+        <div class="suggestion-item" data-idx="${idx}">
+          <div class="sug-left">
+            <span class="sug-icon">${item.icon || "🔍"}</span>
+            <div class="sug-texts">
+              <div class="sug-title">${escapeHtml(item.text)}</div>
+              ${item.subtext ? `<div class="sug-subtext">${escapeHtml(item.subtext)}</div>` : ""}
+            </div>
+          </div>
+          <span class="sug-type-tag ${typeClass}">${escapeHtml(item.type_label)}</span>
+        </div>
+      `;
+    })
+    .join("");
+
+  dropdown.style.display = "block";
+
+  dropdown.querySelectorAll(".suggestion-item").forEach((el) => {
+    el.addEventListener("click", () => {
+      const idx = parseInt(el.getAttribute("data-idx"), 10);
+      if (!isNaN(idx) && suggestions[idx]) {
+        selectSuggestion(suggestions[idx]);
+      }
+    });
+  });
+}
+
+function updateActiveSuggestion() {
+  const dropdown = document.getElementById("suggestionsDropdown");
+  if (!dropdown) return;
+
+  const items = dropdown.querySelectorAll(".suggestion-item");
+  items.forEach((item, idx) => {
+    if (idx === activeSuggestionIndex) {
+      item.classList.add("active");
+      item.scrollIntoView({ block: "nearest" });
+      const searchBox = document.getElementById("searchBox");
+      if (searchBox && currentSuggestions[idx]) {
+        searchBox.value = currentSuggestions[idx].text;
+      }
+    } else {
+      item.classList.remove("active");
+    }
+  });
+}
+
+function selectSuggestion(item) {
+  const searchBox = document.getElementById("searchBox");
+  if (searchBox) {
+    searchBox.value = item.text;
+  }
+  hideSuggestions();
+  updateURLAndSearch();
+}
+
+function hideSuggestions() {
+  const dropdown = document.getElementById("suggestionsDropdown");
+  if (dropdown) {
+    dropdown.style.display = "none";
+    dropdown.innerHTML = "";
+  }
+  activeSuggestionIndex = -1;
+}
+
 window.addEventListener("DOMContentLoaded", () => {
+  initAutocomplete();
   restoreState();
   fetchDbStats();
 });
