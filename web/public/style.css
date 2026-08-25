@@ -730,3 +730,223 @@ tbody tr:nth-child(even) {
 .gif-pdf-link:hover {
   text-decoration: underline;
 }
+
+/* ==========================================================================
+   Wikidata Drug-Drug Interactions (Collapsible Accordion)
+   ========================================================================== */
+.interactions-wrapper {
+  margin: 1.75rem 0;
+  width: 100%;
+}
+
+.interactions-accordion {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.6rem;
+  overflow: hidden;
+  transition: all 0.2s ease;
+}
+
+.interactions-accordion[open] {
+  border-color: #cbd5e1;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+}
+
+.interactions-summary {
+  padding: 0.85rem 1.15rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  user-select: none;
+  background: #f8fafc;
+  transition: background 0.15s;
+  list-style: none;
+}
+
+.interactions-summary::-webkit-details-marker {
+  display: none;
+}
+
+.interactions-summary:hover {
+  background: #f1f5f9;
+}
+
+.summary-left {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.badge-experimental {
+  background: #f1f5f9;
+  color: #475569;
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 0.15rem 0.45rem;
+  border-radius: 4px;
+  border: 1px solid #cbd5e1;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.summary-title {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.summary-right {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.interactions-count-badge {
+  background: #e0f2fe;
+  color: #0369a1;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.15rem 0.55rem;
+  border-radius: 12px;
+  border: 1px solid #bae6fd;
+}
+
+.interactions-count-badge.badge-empty {
+  background: #f3f4f6;
+  color: #6b7280;
+  border: 1px solid #e5e7eb;
+}
+
+.chevron-icon {
+  font-size: 0.75rem;
+  color: #94a3b8;
+  transition: transform 0.2s ease;
+}
+
+.interactions-accordion[open] .chevron-icon {
+  transform: rotate(180deg);
+}
+
+.interactions-body {
+  padding: 1.25rem;
+  border-top: 1px solid #e2e8f0;
+  background: #ffffff;
+}
+
+.disclaimer-callout {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-left: 3px solid #64748b;
+  padding: 0.75rem 1rem;
+  border-radius: 4px;
+  font-size: 0.76rem;
+  color: #475569;
+  line-height: 1.45;
+  margin-bottom: 1rem;
+}
+
+.interactions-source-info {
+  font-size: 0.8rem;
+  color: #334155;
+  margin-bottom: 1rem;
+  padding-bottom: 0.6rem;
+  border-bottom: 1px dashed #e2e8f0;
+}
+
+.interactions-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 0.75rem;
+}
+
+.interaction-card {
+  background: #fafafa;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 0.75rem 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  transition: border-color 0.15s;
+}
+
+.interaction-card:hover {
+  border-color: #cbd5e1;
+  background: #ffffff;
+}
+
+.interaction-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+}
+
+.inter-substance-name {
+  font-weight: 600;
+  font-size: 0.85rem;
+  color: #0f172a;
+}
+
+.atc-code-pill {
+  background: #e2e8f0;
+  color: #334155;
+  font-size: 0.68rem;
+  font-family: monospace;
+  font-weight: 600;
+  padding: 0.1rem 0.35rem;
+  border-radius: 3px;
+  border: 1px solid #cbd5e1;
+}
+
+.sample-drugs-wrap {
+  font-size: 0.74rem;
+  color: #64748b;
+  margin-top: 0.15rem;
+}
+
+.sample-drugs-label {
+  display: block;
+  font-size: 0.68rem;
+  color: #94a3b8;
+  margin-bottom: 0.25rem;
+}
+
+.sample-drugs-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.sample-drug-pill {
+  background: #ffffff;
+  color: var(--primary);
+  font-size: 0.72rem;
+  padding: 0.12rem 0.45rem;
+  border-radius: 3px;
+  border: 1px solid #e2e8f0;
+  text-decoration: none;
+  font-weight: 500;
+  transition: all 0.15s;
+}
+
+.sample-drug-pill:hover {
+  background: #f1f5f9;
+  border-color: var(--primary);
+  text-decoration: none;
+}
+
+.no-interactions-msg {
+  padding: 1rem 0.5rem;
+  text-align: center;
+  color: #64748b;
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.no-inter-sub {
+  font-size: 0.75rem;
+  color: #94a3b8;
+  margin-top: 0.35rem;
+}

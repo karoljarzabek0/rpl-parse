@@ -330,6 +330,75 @@ function renderMedicinePage(med: any): string {
       }
     </div>
 
+    <!-- Interakcje Lekowe (Wikidata) - Komponent Rozwijany -->
+    <div class="interactions-wrapper">
+      <details class="interactions-accordion">
+        <summary class="interactions-summary">
+          <div class="summary-left">
+            <span class="badge-experimental">Funkcja testowa</span>
+            <span class="summary-title">Interakcje z innymi substancjami (Wikidata)</span>
+          </div>
+          <div class="summary-right">
+            ${
+              med.interakcje_wikidata && med.interakcje_wikidata.interactions_count > 0
+                ? `<span class="interactions-count-badge">${med.interakcje_wikidata.interactions_count} wykrytych interakcji</span>`
+                : `<span class="interactions-count-badge badge-empty">0 interakcji w bazie</span>`
+            }
+            <span class="chevron-icon">▾</span>
+          </div>
+        </summary>
+
+        <div class="interactions-body">
+          <div class="disclaimer-callout">
+            <b>ℹ️ Zastrzeżenie prawne i medyczne:</b> Informacje o interakcjach są mapowane automatycznie z otwartej bazy wiedzy <b>Wikidata</b> (Wikiprojekt Lekoznawstwo). Moduł ten ma charakter wyłącznie poglądowo-badawczy i <u>nie może</u> być traktowany jako definitywne ani wyczerpujące źródło wiedzy medycznej. Zawsze zapoznaj się z oficjalną Charakterystyką Produktu Leczniczego (ChPL) i skonsultuj z lekarzem lub farmaceutą.
+          </div>
+
+          ${
+            med.interakcje_wikidata && med.interakcje_wikidata.interactions_count > 0
+              ? `
+              <div class="interactions-source-info">
+                Substancja czynna leku (Wikidata): ${med.interakcje_wikidata.source_substances
+                  .map((s: any) => `<b>${escapeHtml(s.name)}</b> (ATC: <code>${escapeHtml(s.atc_code)}</code>)`)
+                  .join(", ")}
+              </div>
+              <div class="interactions-grid">
+                ${med.interakcje_wikidata.interactions
+                  .map((item: any) => {
+                    const atcBadges = item.atc_codes && item.atc_codes.length > 0
+                      ? item.atc_codes.map((c: string) => `<span class="atc-code-pill">${escapeHtml(c)}</span>`).join(" ")
+                      : "";
+                    const sampleDrugsHtml = item.sample_drugs && item.sample_drugs.length > 0
+                      ? `<div class="sample-drugs-wrap">
+                          <span class="sample-drugs-label">Przykłady w rejestrze RPL:</span>
+                          <div class="sample-drugs-list">
+                            ${item.sample_drugs
+                              .map((d: any) => `<a href="/lek/${d.id}" class="sample-drug-pill">${escapeHtml(d.nazwa_produktu)} ${escapeHtml(d.moc || "")}</a>`)
+                              .join("")}
+                          </div>
+                        </div>`
+                      : "";
+                    return `
+                      <div class="interaction-card">
+                        <div class="interaction-card-header">
+                          <span class="inter-substance-name">${escapeHtml(item.substance_name)}</span>
+                          ${atcBadges}
+                        </div>
+                        ${sampleDrugsHtml}
+                      </div>
+                    `;
+                  })
+                  .join("")}
+              </div>`
+              : `
+              <div class="no-interactions-msg">
+                <p>ℹ️ <b>Brak zarejestrowanych interakcji w bazie Wikidata</b> dla kodów ATC tego produktu (${escapeHtml(firstAtc.code || "brak")}).</p>
+                <p class="no-inter-sub">Brak wpisu w bazie Wikidata nie oznacza braku interakcji farmakologicznych. Szczegółowe i wiążące informacje o interakcjach z innymi lekami znajdują się w sekcji <b>4.5 ChPL</b> poniżej.</p>
+              </div>`
+          }
+        </div>
+      </details>
+    </div>
+
     <div class="chpl-section">
       <h2>Charakterystyka Produktu Leczniczego (ChPL)</h2>
       <div class="chpl-content markdown-body">

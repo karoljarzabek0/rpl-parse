@@ -196,6 +196,77 @@ def get_stats():
     }
 
 
+def get_wikidata_interactions(conn: sqlite3.Connection, produkt_id: int) -> Dict[str, Any]:
+    c = conn.cursor()
+    # 1. Get ATC codes for product
+    c.execute("SELECT kod_atc FROM kody_atc WHERE produkt_id = ?", (produkt_id,))
+    atc_rows = c.fetchall()
+    atc_codes = [r["kod_atc"] for r in atc_rows if r["kod_atc"]]
+    if not atc_codes:
+        return {"source_substances": [], "interactions_count": 0, "interactions": []}
+
+    # 2. Map ATC -> Wikidata substances
+    placeholders = ",".join(["?"] * len(atc_codes))
+    c.execute(f"""
+        SELECT DISTINCT was.atc_code, ws.wikidata_id, ws.name
+        FROM wikidata_atc_substance was
+        JOIN wikidata_substances ws ON ws.wikidata_id = was.substance_wikidata_id
+        WHERE was.atc_code IN ({placeholders})
+    """, atc_codes)
+    source_substances = [dict(r) for r in c.fetchall()]
+    if not source_substances:
+        return {"source_substances": [], "interactions_count": 0, "interactions": []}
+
+    sub_qids = list(set(s["wikidata_id"] for s in source_substances))
+    q_placeholders = ",".join(["?"] * len(sub_qids))
+
+    # 3. Get interacting substances
+    c.execute(f"""
+        SELECT DISTINCT i.interacts_with_wikidata_id, ws.name as interacting_name
+        FROM wikidata_interactions i
+        JOIN wikidata_substances ws ON ws.wikidata_id = i.interacts_with_wikidata_id
+        WHERE i.substance_wikidata_id IN ({q_placeholders})
+        ORDER BY ws.name ASC
+    """, sub_qids)
+    interacting_rows = c.fetchall()
+
+    interactions_list = []
+    for row in interacting_rows:
+        iw_qid = row["interacts_with_wikidata_id"]
+        iw_name = row["interacting_name"]
+
+        # 4. Get ATC codes of the interacting substance
+        c.execute("SELECT atc_code FROM wikidata_atc_substance WHERE substance_wikidata_id = ?", (iw_qid,))
+        iw_atcs = [r["atc_code"] for r in c.fetchall()]
+
+        # 5. Find example drugs in RPL database that have this ATC code
+        sample_drugs = []
+        if iw_atcs:
+            atc_ph = ",".join(["?"] * len(iw_atcs))
+            c.execute(f"""
+                SELECT DISTINCT p.id, p.nazwa_produktu, p.moc
+                FROM produkty_lecznicze p
+                JOIN kody_atc a ON a.produkt_id = p.id
+                WHERE a.kod_atc IN ({atc_ph})
+                ORDER BY p.nazwa_produktu ASC
+                LIMIT 4
+            """, iw_atcs)
+            sample_drugs = [dict(d) for d in c.fetchall()]
+
+        interactions_list.append({
+            "wikidata_id": iw_qid,
+            "substance_name": iw_name,
+            "atc_codes": iw_atcs,
+            "sample_drugs": sample_drugs
+        })
+
+    return {
+        "source_substances": source_substances,
+        "interactions_count": len(interactions_list),
+        "interactions": interactions_list
+    }
+
+
 @app.get("/api/medicine/{produkt_id}")
 def get_medicine_detail(produkt_id: int):
     conn = state["db_conn"]
@@ -294,6 +365,10 @@ def get_medicine_detail(produkt_id: int):
         print(f"Error computing similar medicines: {e}")
 
     meta["podobne_leki"] = similar_medicines
+
+    # Wikidata Drug-Drug Interactions
+    meta["interakcje_wikidata"] = get_wikidata_interactions(conn, produkt_id)
+
     return meta
 
 
