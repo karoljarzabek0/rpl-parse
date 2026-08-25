@@ -176,18 +176,40 @@ function renderMedicinePage(med: any): string {
     }
 
     <div class="info-table">
-      <div class="info-group">
-        <h3>Klasyfikacja terapeutyczna</h3>
-        <table>
-          <tr>
-            <td>Grupa główna:</td>
-            <td>${escapeHtml(firstAtc.group || "Brak")}</td>
-          </tr>
-          <tr>
-            <td>Podgrupa:</td>
-            <td>${escapeHtml(firstAtc.subgroup || "Brak")}</td>
-          </tr>
-        </table>
+      <div class="info-group atc-info-group">
+        <h3>Klasyfikacja ATC (Drzewo hierarchiczne)</h3>
+        ${
+          firstAtc.levels && firstAtc.levels.length > 0
+            ? `<div class="atc-hierarchy-tree">
+                ${firstAtc.levels
+                  .map((lvl: any, idx: number) => {
+                    const isLast = idx === firstAtc.levels.length - 1;
+                    return `
+                      <div class="atc-tree-node ${isLast ? 'atc-tree-leaf' : ''}">
+                        <div class="atc-node-left">
+                          <span class="atc-level-tag">Poziom ${lvl.level}</span>
+                          <code class="atc-code-tag">${escapeHtml(lvl.code)}</code>
+                        </div>
+                        <div class="atc-node-right">
+                          <div class="atc-node-name">${escapeHtml(lvl.name)}</div>
+                          <div class="atc-node-desc">${escapeHtml(lvl.level_name)}</div>
+                        </div>
+                      </div>
+                    `;
+                  })
+                  .join("")}
+              </div>`
+            : `<table>
+                <tr>
+                  <td>Grupa główna:</td>
+                  <td>${escapeHtml(firstAtc.group || "Brak")}</td>
+                </tr>
+                <tr>
+                  <td>Podgrupa:</td>
+                  <td>${escapeHtml(firstAtc.subgroup || "Brak")}</td>
+                </tr>
+              </table>`
+        }
       </div>
 
       <div class="info-group">
@@ -430,6 +452,7 @@ function renderMedicinePage(med: any): string {
 
 const server = Bun.serve({
   port: PORT,
+  hostname: "0.0.0.0",
   async fetch(req) {
     const url = new URL(req.url);
 
@@ -500,6 +523,6 @@ const server = Bun.serve({
   },
 });
 
-console.log(`🌐 RPL Web App running on http://localhost:${server.port}`);
+console.log(`🌐 RPL Web App running on http://0.0.0.0:${server.port} (Local: http://localhost:${server.port})`);
 console.log(`🔗 Connected to API Backend: ${API_BACKEND}`);
 console.log(`⚡ Markdown engine: Bun ${Bun.version} native Rust parser`);

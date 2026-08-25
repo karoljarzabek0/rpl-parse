@@ -950,3 +950,98 @@ tbody tr:nth-child(even) {
   color: #94a3b8;
   margin-top: 0.35rem;
 }
+
+/* ==========================================================================
+   Detailed ATC Hierarchy Tree & Search Fineprint
+   ========================================================================== */
+.atc-hierarchy-fineprint {
+  font-size: 0.73rem;
+  color: #64748b;
+  margin-top: -0.15rem;
+  margin-bottom: 0.5rem;
+  line-height: 1.35;
+}
+
+.atc-fp-label {
+  font-weight: 600;
+  color: #475569;
+}
+
+.atc-info-group {
+  grid-column: 1 / -1;
+}
+
+.atc-hierarchy-tree {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-top: 0.5rem;
+}
+
+.atc-tree-node {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.45rem 0.65rem;
+  background: #f8fafc;
+  border-left: 3px solid #cbd5e1;
+  border-radius: 0 4px 4px 0;
+  transition: all 0.15s ease;
+}
+
+.atc-tree-node:hover {
+  background: #f1f5f9;
+  border-left-color: var(--primary);
+}
+
+.atc-tree-node.atc-tree-leaf {
+  border-left-color: var(--primary);
+  background: #f0fdf4;
+}
+
+.atc-node-left {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 140px;
+  flex-shrink: 0;
+}
+
+.atc-level-tag {
+  font-size: 0.65rem;
+  color: #64748b;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.atc-code-tag {
+  font-family: monospace;
+  font-size: 0.78rem;
+  font-weight: 700;
+  background: #e2e8f0;
+  color: #0f172a;
+  padding: 0.1rem 0.35rem;
+  border-radius: 3px;
+}
+
+.atc-tree-leaf .atc-code-tag {
+  background: var(--primary);
+  color: #ffffff;
+}
+
+.atc-node-right {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.atc-node-name {
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.atc-node-desc {
+  font-size: 0.7rem;
+  color: #64748b;
+}

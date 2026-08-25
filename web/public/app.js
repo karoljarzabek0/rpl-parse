@@ -82,6 +82,7 @@ function renderResultsList(results) {
           </div>
         </div>
         <p class="atc-group">${escapeHtml(atcGroupText)}</p>
+        ${firstAtc.path_str ? `<p class="atc-hierarchy-fineprint"><span class="atc-fp-label">Hierarchia ATC:</span> ${escapeHtml(firstAtc.path_str)}</p>` : ""}
         ${headlineHtml}
       `;
       resultsContainer.appendChild(card);

@@ -30,13 +30,15 @@ app.add_middleware(
 MODEL_NAME = "OPI-PIB/PolDense-400M"
 DB_PATH = "data/rpl.db"
 ATC_MAP_PATH = "data/atc_map.json"
+ATC_HIERARCHY_PATH = "data/atc_hierarchy.json"
 VEC_EXT_PATH = "extensions/vec0.so"
 MORFEUSZ_EXT_PATH = "extensions/morfeusz.so"
 
 # Global state
-state = {
+state: Dict[str, Any] = {
     "model": None,
     "atc_map": {},
+    "atc_hierarchy": {},
     "db_conn": None,
     "device": "cuda" if torch.cuda.is_available() else "cpu"
 }
@@ -52,34 +54,58 @@ def get_db_connection() -> sqlite3.Connection:
     return conn
 
 
-def describe_atc_code(code: str, atc_map: Dict[str, Any]) -> Dict[str, str]:
+def describe_atc_code(code: str, atc_map: Dict[str, Any], atc_hierarchy: Dict[str, Any] = None) -> Dict[str, Any]:
     if not code:
-        return {"code": "", "subgroup": "", "group": "", "display": ""}
+        return {"code": "", "subgroup": "", "group": "", "display": "", "path_str": "", "path": [], "levels": []}
     code_clean = code.strip().upper()
     g = code_clean[0] if code_clean else ""
     sg = code_clean[:3] if len(code_clean) >= 3 else ""
 
-    g_info = atc_map.get(g, {})
+    g_info = atc_map.get(g, {}) if atc_map else {}
     g_name = g_info.get("name", "")
     sg_name = g_info.get("subgroups", {}).get(sg, "")
 
-    display = f"{code_clean}"
-    if sg_name and g_name:
-        display = f"{code_clean} → {sg_name} ({g_name})"
-    elif sg_name:
-        display = f"{code_clean} → {sg_name}"
-    elif g_name:
-        display = f"{code_clean} → {g_name}"
+    levels = []
+    path_names = []
+    if atc_hierarchy:
+        prefixes = []
+        if len(code_clean) >= 1: prefixes.append(code_clean[:1])
+        if len(code_clean) >= 3: prefixes.append(code_clean[:3])
+        if len(code_clean) >= 4: prefixes.append(code_clean[:4])
+        if len(code_clean) >= 5: prefixes.append(code_clean[:5])
+        if len(code_clean) >= 7: prefixes.append(code_clean[:7])
+
+        for pfx in prefixes:
+            node = atc_hierarchy.get(pfx)
+            if node:
+                levels.append({
+                    "level": node.get("level"),
+                    "level_name": node.get("level_name"),
+                    "code": node.get("code"),
+                    "name": node.get("name")
+                })
+                if node.get("name") not in path_names:
+                    path_names.append(node.get("name"))
+
+    if not path_names:
+        if g_name: path_names.append(g_name)
+        if sg_name: path_names.append(sg_name)
+
+    display = f"{code_clean} → {sg_name} ({g_name})" if sg_name and g_name else code_clean
+    hierarchy_str = " › ".join(path_names) if path_names else display
 
     return {
         "code": code_clean,
-        "subgroup": sg_name,
-        "group": g_name,
-        "display": display
+        "subgroup": sg_name or (levels[1]["name"] if len(levels) > 1 else ""),
+        "group": g_name or (levels[0]["name"] if len(levels) > 0 else ""),
+        "display": display,
+        "path_str": hierarchy_str,
+        "path": path_names,
+        "levels": levels
     }
 
 
-def get_medicine_metadata(conn: sqlite3.Connection, produkt_id: int, atc_map: Dict[str, Any]) -> Dict[str, Any]:
+def get_medicine_metadata(conn: sqlite3.Connection, produkt_id: int, atc_map: Dict[str, Any], atc_hierarchy: Dict[str, Any] = None) -> Dict[str, Any]:
     c = conn.cursor()
     c.execute("""
         SELECT id, nazwa_produktu, rodzaj_preparatu, nazwa_powszechnie_stosowana, moc,
@@ -105,7 +131,7 @@ def get_medicine_metadata(conn: sqlite3.Connection, produkt_id: int, atc_map: Di
     # ATC codes
     c.execute("SELECT kod_atc FROM kody_atc WHERE produkt_id = ?", (produkt_id,))
     atc = c.fetchall()
-    res["atc"] = [describe_atc_code(a["kod_atc"], atc_map) for a in atc]
+    res["atc"] = [describe_atc_code(a["kod_atc"], atc_map, atc_hierarchy) for a in atc]
 
     # Packaging summary
     c.execute("SELECT count(*) as count, kategoria_dostepnosci FROM opakowania WHERE produkt_id = ? GROUP BY kategoria_dostepnosci", (produkt_id,))
@@ -160,6 +186,11 @@ def startup_event():
     if os.path.exists(ATC_MAP_PATH):
         with open(ATC_MAP_PATH, "r", encoding="utf-8") as f:
             state["atc_map"] = json.load(f)
+
+    if os.path.exists(ATC_HIERARCHY_PATH):
+        with open(ATC_HIERARCHY_PATH, "r", encoding="utf-8") as f:
+            state["atc_hierarchy"] = json.load(f)
+        print(f"Loaded {len(state['atc_hierarchy'])} ATC hierarchy nodes from {ATC_HIERARCHY_PATH}")
 
     state["db_conn"] = get_db_connection()
     print("API Server & PolDense-400M ready!")
@@ -271,9 +302,10 @@ def get_wikidata_interactions(conn: sqlite3.Connection, produkt_id: int) -> Dict
 def get_medicine_detail(produkt_id: int):
     conn = state["db_conn"]
     atc_map = state["atc_map"]
+    atc_hierarchy = state.get("atc_hierarchy", {})
     c = conn.cursor()
 
-    meta = get_medicine_metadata(conn, produkt_id, atc_map)
+    meta = get_medicine_metadata(conn, produkt_id, atc_map, atc_hierarchy)
     if "nazwa_produktu" not in meta:
         raise HTTPException(status_code=404, detail="Lek nie został znaleziony")
 
@@ -477,10 +509,12 @@ def search(
     # Sort descending by score
     ranked_items.sort(key=lambda x: x["score"], reverse=True)
 
+    atc_hierarchy = state.get("atc_hierarchy", {})
+
     # Enrich with metadata & apply only_refunded filter
     results = []
     for item in ranked_items:
-        meta = get_medicine_metadata(conn, item["produkt_id"], atc_map)
+        meta = get_medicine_metadata(conn, item["produkt_id"], atc_map, atc_hierarchy)
         if only_refunded and not meta.get("is_refundowany"):
             continue
         meta.update(item)
