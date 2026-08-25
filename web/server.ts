@@ -37,6 +37,31 @@ function escapeHtml(str: any) {
     .replace(/'/g, "&#039;");
 }
 
+function renderGlobalHeader(options: { isHome?: boolean } = {}): string {
+  const isHome = options.isHome ?? false;
+  return `
+  <header class="global-site-header">
+    <div class="header-inner">
+      <a href="/" onclick="handleBack(event)" class="brand-link" title="Strona główna wyszukiwarki RPL">
+        <img src="/svg/chpl.svg" alt="RPL Logo" class="brand-logo" width="24" height="24" />
+        <span class="brand-title">Rejestr Produktów Leczniczych</span>
+        <span class="brand-badge">RRF Search</span>
+      </a>
+      <nav class="header-nav">
+        ${
+          isHome
+            ? `<span class="header-nav-status">Wyszukiwarka leków i ChPL</span>`
+            : `<a href="/" onclick="handleBack(event)" class="nav-search-btn" title="Powrót do wyników wyszukiwania">
+                <span class="nav-icon">🔍</span>
+                <span>Wróć do wyszukiwarki</span>
+               </a>`
+        }
+      </nav>
+    </div>
+  </header>
+  `;
+}
+
 function renderMedicinePage(med: any): string {
   const firstAtc = med.atc && med.atc[0] ? med.atc[0] : { code: "", group: "", subgroup: "", display: "" };
   const iconSvg = getAtcIcon(firstAtc.code);
@@ -108,6 +133,8 @@ function renderMedicinePage(med: any): string {
   </script>
 </head>
 <body>
+  ${renderGlobalHeader({ isHome: false })}
+
   <div class="single-medicine-main">
     <p class="back-link"><a href="/" onclick="handleBack(event)">&larr; Powrót do wyszukiwarki</a></p>
 
@@ -515,7 +542,31 @@ const server = Bun.serve({
       try {
         const res = await fetch(`${API_BACKEND}/api/medicine/${produktId}`);
         if (!res.ok) {
-          return new Response(`<h1>Lek #${produktId} nie został znaleziony</h1><p><a href="/">Powrót</a></p>`, {
+          return new Response(`<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="icon" type="image/svg+xml" href="/svg/chpl.svg" />
+  <title>Nie znaleziono leku — RPL</title>
+  <link rel="stylesheet" href="/style.css" />
+  <script>
+    function handleBack(e) {
+      if (e) e.preventDefault();
+      const q = sessionStorage.getItem("last_search_query");
+      window.location.href = q ? "/?q=" + encodeURIComponent(q) : "/";
+    }
+  </script>
+</head>
+<body>
+  ${renderGlobalHeader({ isHome: false })}
+  <div class="single-medicine-main" style="text-align: center; padding: 2.5rem 1rem;">
+    <h1>Lek #${escapeHtml(produktId)} nie został znaleziony</h1>
+    <p style="color: var(--text-gray); margin: 1rem 0 2rem;">Podany identyfikator produktu leczniczego nie istnieje w bazie RPL.</p>
+    <p><a href="/" onclick="handleBack(event)" class="nav-search-btn" style="display: inline-flex;">← Wróć do wyszukiwarki</a></p>
+  </div>
+</body>
+</html>`, {
             status: 404,
             headers: { "Content-Type": "text/html; charset=utf-8" },
           });
@@ -526,7 +577,31 @@ const server = Bun.serve({
           headers: { "Content-Type": "text/html; charset=utf-8" },
         });
       } catch (err: any) {
-        return new Response(`<h1>Błąd serwera</h1><p>${escapeHtml(err.message)}</p>`, {
+        return new Response(`<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="icon" type="image/svg+xml" href="/svg/chpl.svg" />
+  <title>Błąd serwera — RPL</title>
+  <link rel="stylesheet" href="/style.css" />
+  <script>
+    function handleBack(e) {
+      if (e) e.preventDefault();
+      const q = sessionStorage.getItem("last_search_query");
+      window.location.href = q ? "/?q=" + encodeURIComponent(q) : "/";
+    }
+  </script>
+</head>
+<body>
+  ${renderGlobalHeader({ isHome: false })}
+  <div class="single-medicine-main" style="text-align: center; padding: 2.5rem 1rem;">
+    <h1>Wystąpił błąd serwera</h1>
+    <p style="color: #dc2626; margin: 1rem 0 2rem;">${escapeHtml(err.message)}</p>
+    <p><a href="/" onclick="handleBack(event)" class="nav-search-btn" style="display: inline-flex;">← Wróć do wyszukiwarki</a></p>
+  </div>
+</body>
+</html>`, {
           status: 500,
           headers: { "Content-Type": "text/html; charset=utf-8" },
         });
@@ -539,13 +614,20 @@ const server = Bun.serve({
         const targetUrl = `${API_BACKEND}${url.pathname}${url.search}`;
         const response = await fetch(targetUrl, {
           method: req.method,
-          headers: req.headers,
+          headers: {
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+          },
           body: req.method !== "GET" && req.method !== "HEAD" ? req.body : undefined,
         });
 
-        const headers = new Headers(response.headers);
+        const data = await response.arrayBuffer();
+        const headers = new Headers();
+        headers.set("Content-Type", response.headers.get("Content-Type") || "application/json; charset=utf-8");
         headers.set("Access-Control-Allow-Origin", "*");
-        return new Response(response.body, {
+        headers.set("Cache-Control", "no-cache, no-store, must-revalidate");
+
+        return new Response(data, {
           status: response.status,
           headers,
         });
@@ -557,21 +639,51 @@ const server = Bun.serve({
           }),
           {
             status: 503,
-            headers: { "Content-Type": "application/json" },
+            headers: {
+              "Content-Type": "application/json; charset=utf-8",
+              "Access-Control-Allow-Origin": "*",
+            },
           }
         );
       }
     }
 
-    // 3. Static File Serving
+    // 3. Static File Serving with Proper MIME types
+    const MIME_TYPES: Record<string, string> = {
+      ".html": "text/html; charset=utf-8",
+      ".css": "text/css; charset=utf-8",
+      ".js": "application/javascript; charset=utf-8",
+      ".json": "application/json; charset=utf-8",
+      ".svg": "image/svg+xml",
+      ".png": "image/png",
+      ".jpg": "image/jpeg",
+      ".jpeg": "image/jpeg",
+      ".ico": "image/x-icon",
+      ".woff2": "font/woff2",
+      ".woff": "font/woff",
+    };
+
     let filePath = url.pathname === "/" ? "/index.html" : url.pathname;
     const file = Bun.file(`${import.meta.dir}/public${filePath}`);
 
     if (await file.exists()) {
-      return new Response(file);
+      const extMatch = filePath.match(/\.[a-z0-9]+$/i);
+      const ext = extMatch ? extMatch[0].toLowerCase() : "";
+      const contentType = MIME_TYPES[ext] || file.type || "application/octet-stream";
+
+      return new Response(file, {
+        headers: {
+          "Content-Type": contentType,
+          "Cache-Control": ext === ".html" ? "no-cache" : "public, max-age=86400",
+          "Access-Control-Allow-Origin": "*",
+        },
+      });
     }
 
-    return new Response("Not Found", { status: 404 });
+    return new Response("Not Found", {
+      status: 404,
+      headers: { "Content-Type": "text/plain; charset=utf-8" },
+    });
   },
 });
 
