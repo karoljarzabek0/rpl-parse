@@ -353,6 +353,11 @@ def main():
             except ValueError:
                 prod_id = 0
 
+            # Skip if not a valid human medicinal product
+            if prod_id not in metadata_lookup:
+                progress.advance(task)
+                continue
+
             # If already processed in DB and in S3, we can skip or read cached
             if prod_id in existing_db_ids and (args.skip_s3_upload or prod_id in existing_s3_ids):
                 progress.advance(task)

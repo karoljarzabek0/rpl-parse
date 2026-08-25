@@ -232,8 +232,9 @@ def main():
     c.execute("SELECT produkt_id FROM vec_dokumenty")
     existing_db_ids = set(row[0] for row in c.fetchall())
 
-    # Filter keys to only unprocessed ones
+    # Filter keys to only valid human medicinal products that exist in produkty_lecznicze
     keys_to_process = []
+    skipped_vet = 0
     for key in md_keys:
         fname = os.path.basename(key).replace(".md", "")
         try:
@@ -241,15 +242,20 @@ def main():
         except ValueError:
             prod_id = 0
 
-        # Skip only if already present in both DB and S3
+        # Skip products not in the human medicines register
+        if prod_id not in meta_lookup:
+            skipped_vet += 1
+            continue
+
+        # Skip if already present in both DB and S3
         if prod_id in existing_db_ids and (args.skip_s3_upload or prod_id in existing_s3_ids):
             continue
         keys_to_process.append(key)
 
-    console.print(f"[bold green]{len(md_keys) - len(keys_to_process)} already processed. {len(keys_to_process)} remaining to process.[/bold green]\n")
+    console.print(f"[bold green]Skipped {skipped_vet} non-human/unmapped documents. {len(keys_to_process)} remaining to process.[/bold green]\n")
 
     if not keys_to_process:
-        console.print("[green]All requested documents are already fully embedded and indexed![/green]")
+        console.print("[green]All requested human documents are already fully embedded and indexed![/green]")
         return
 
     # 3. Load Tokenizer & Model
