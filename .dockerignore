@@ -1,0 +1,32 @@
+# Git & IDEs
+.git
+.gitignore
+.idea
+.vscode
+
+# Rust build artifacts
+target/
+Cargo.lock
+
+# Python artifacts
+python/.venv
+**/__pycache__
+**/*.pyc
+**/*.pyo
+**/*.pyd
+.pytest_cache
+
+# Large Local Data & Databases (Downloaded dynamically from S3 at runtime)
+data/*.db
+data/*.db-wal
+data/*.db-shm
+data/*.db.zst
+data/*.xml
+data/*.npz
+data/demo_rpl.db
+data/embeddings.db
+
+# Documentation & Scratch
+docs/
+examples/
+*.md

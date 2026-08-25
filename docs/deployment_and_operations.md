@@ -120,3 +120,45 @@ print('Kopia zapasowa w S3 utworzona pomyślnie!')
    ```bash
    sqlite3 data/rpl.db "VACUUM; ANALYZE;"
    ```
+
+---
+
+## 5. Konteneryzacja i Wdrożenie w Dockerze (Docker & Docker Compose)
+
+Aplikacja posiada zoptymalizowany, wieloetapowy obraz Docker (`Dockerfile`), który:
+- Wykorzystuje lekki runtime **Python 3.12-slim** oraz **Bun.js**,
+- Instaluje odchudzoną wersję **PyTorch (CPU-only)** bez obciążających bibliotek CUDA (oszczędność ponad 4 GB miejsca),
+- **Nie zawiera bazy danych w obrazie** — pobiera i dekompresuje najnowszą kopię bazy `.db.zst` w locie z chmury S3 podczas startu kontenera (`entrypoint.sh`),
+- Obsługuje wolumeny trwałe dla bazy (`rpl_data`) i cache modeli Hugging Face (`rpl_cache`).
+
+### 5.1 Uruchomienie z Docker Compose (Rekomendowane)
+
+```bash
+# 1. Zbudowanie i uruchomienie w tle
+docker compose up -d --build
+
+# 2. Podgląd logów pobierania bazy i startu modeli
+docker compose logs -f
+
+# 3. Zatrzymanie
+docker compose down
+```
+
+### 5.2 Ręczne uruchomienie z `docker run`
+
+```bash
+# Budowanie obrazu
+docker build -t rpl-search:latest .
+
+# Uruchomienie z automatycznym pobraniem bazy z S3
+docker run -d \
+  --name rpl-search \
+  -p 3000:3000 \
+  -e S3_ENDPOINT_URL="https://s3.waw.io.cloud.ovh.net" \
+  -e S3_BUCKET="plek" \
+  -e S3_KEY="backups/rpl_2026-08-25_wikidata_uses.db.zst" \
+  -v rpl_data:/app/data \
+  -v rpl_cache:/app/cache \
+  rpl-search:latest
+```
+
