@@ -1158,3 +1158,54 @@ tbody tr:nth-child(even) {
   color: #166534;
   border: 1px solid #bbf7d0;
 }
+
+/* ==========================================================================
+   Wikidata Medical Uses (Zastosowanie) Component
+   ========================================================================== */
+.uses-count-badge {
+  background: #ecfdf5;
+  color: #047857;
+  border-color: #a7f3d0;
+}
+
+.uses-tags-cloud {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-top: 0.75rem;
+}
+
+.use-tag-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 9999px;
+  padding: 0.3rem 0.75rem;
+  font-size: 0.8rem;
+  color: #1e293b;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  transition: all 0.15s ease;
+}
+
+.use-tag-item:hover {
+  background: #f8fafc;
+  border-color: var(--primary);
+  transform: translateY(-1px);
+}
+
+.use-tag-icon {
+  font-size: 0.85rem;
+}
+
+.use-tag-name {
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.use-tag-sub {
+  font-size: 0.7rem;
+  color: #64748b;
+  font-style: italic;
+}

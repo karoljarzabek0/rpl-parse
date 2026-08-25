@@ -352,6 +352,58 @@ function renderMedicinePage(med: any): string {
       }
     </div>
 
+    <!-- Zastosowanie Medyczne (Wikidata) - Komponent Rozwijany -->
+    <div class="interactions-wrapper" style="margin-bottom: 0.75rem;">
+      <details class="interactions-accordion uses-accordion">
+        <summary class="interactions-summary">
+          <div class="summary-left">
+            <span class="badge-experimental">Funkcja testowa</span>
+            <span class="summary-title">Zastosowanie lecznicze i wskazania (Wikidata)</span>
+          </div>
+          <div class="summary-right">
+            ${
+              med.zastosowanie_wikidata && med.zastosowanie_wikidata.conditions_count > 0
+                ? `<span class="interactions-count-badge uses-count-badge">${med.zastosowanie_wikidata.conditions_count} leczonych stanów</span>`
+                : `<span class="interactions-count-badge badge-empty">0 wskazań w bazie</span>`
+            }
+            <span class="chevron-icon">▾</span>
+          </div>
+        </summary>
+
+        <div class="interactions-body">
+          <div class="disclaimer-callout">
+            <b>ℹ️ Zastrzeżenie prawne i medyczne:</b> Informacje o zastosowaniu leczniczym są mapowane z otwartej bazy wiedzy <b>Wikidata</b> (właściwość <i>leczony stan medyczny / P2175</i>). Moduł ten ma charakter wyłącznie poglądowo-edukacyjny i <u>nie zastępuje</u> oficjalnych wskazań terapeutycznych zawartych w punkcie <b>4.1 ChPL</b> poniżej.
+          </div>
+
+          ${
+            med.zastosowanie_wikidata && med.zastosowanie_wikidata.conditions_count > 0
+              ? `
+              <div class="interactions-source-info">
+                Substancje leku (Wikidata): ${med.zastosowanie_wikidata.source_substances
+                  .map((s: any) => `<b>${escapeHtml(s.name)}</b> (ATC: <code>${escapeHtml(s.atc_code)}</code>)`)
+                  .join(", ")}
+              </div>
+              <div class="uses-tags-cloud">
+                ${med.zastosowanie_wikidata.conditions
+                  .map((c: any) => `
+                    <div class="use-tag-item">
+                      <span class="use-tag-icon">🩺</span>
+                      <span class="use-tag-name">${escapeHtml(c.name)}</span>
+                      ${c.substance ? `<span class="use-tag-sub">(${escapeHtml(c.substance)})</span>` : ""}
+                    </div>
+                  `)
+                  .join("")}
+              </div>`
+              : `
+              <div class="no-interactions-msg">
+                <p>ℹ️ <b>Brak zarejestrowanych wskazań w bazie Wikidata</b> dla kodów ATC tego produktu (${escapeHtml(firstAtc.code || "brak")}).</p>
+                <p class="no-inter-sub">Pełne i wiążące wskazania terapeutyczne znajdują się w sekcji <b>4.1 ChPL (Wskazania do stosowania)</b> poniżej.</p>
+              </div>`
+          }
+        </div>
+      </details>
+    </div>
+
     <!-- Interakcje Lekowe (Wikidata) - Komponent Rozwijany -->
     <div class="interactions-wrapper">
       <details class="interactions-accordion">
@@ -394,7 +446,7 @@ function renderMedicinePage(med: any): string {
                           <span class="sample-drugs-label">Przykłady w rejestrze RPL:</span>
                           <div class="sample-drugs-list">
                             ${item.sample_drugs
-                              .map((d: any) => `<a href="/lek/${d.id}" class="sample-drug-pill">${escapeHtml(d.nazwa_produktu)} ${escapeHtml(d.moc || "")}</a>`)
+                              .map((sd: any) => `<a href="/lek/${sd.id}" class="sample-drug-pill" title="${escapeHtml(sd.nazwa_produktu)}">${escapeHtml(sd.nazwa_produktu)}</a>`)
                               .join("")}
                           </div>
                         </div>`

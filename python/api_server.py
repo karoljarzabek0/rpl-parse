@@ -299,6 +299,57 @@ def get_wikidata_interactions(conn: sqlite3.Connection, produkt_id: int) -> Dict
     }
 
 
+def get_wikidata_uses(conn: sqlite3.Connection, produkt_id: int) -> Dict[str, Any]:
+    c = conn.cursor()
+    c.execute("SELECT kod_atc FROM kody_atc WHERE produkt_id = ?", (produkt_id,))
+    atc_rows = c.fetchall()
+    atc_codes = [r["kod_atc"] for r in atc_rows if r["kod_atc"]]
+    if not atc_codes:
+        return {"source_substances": [], "conditions_count": 0, "conditions": []}
+
+    placeholders = ",".join(["?"] * len(atc_codes))
+    c.execute(f"""
+        SELECT DISTINCT was.atc_code, ws.wikidata_id, ws.name
+        FROM wikidata_atc_substance was
+        JOIN wikidata_substances ws ON ws.wikidata_id = was.substance_wikidata_id
+        WHERE was.atc_code IN ({placeholders})
+    """, atc_codes)
+    substances = [dict(r) for r in c.fetchall()]
+    if not substances:
+        return {"source_substances": [], "conditions_count": 0, "conditions": []}
+
+    sub_qids = list(set(s["wikidata_id"] for s in substances))
+    sub_placeholders = ",".join(["?"] * len(sub_qids))
+
+    c.execute(f"""
+        SELECT DISTINCT wc.condition_wikidata_id, wc.name, ws.name as substance_name
+        FROM wikidata_substance_conditions wsc
+        JOIN wikidata_conditions wc ON wc.condition_wikidata_id = wsc.condition_wikidata_id
+        JOIN wikidata_substances ws ON ws.wikidata_id = wsc.substance_wikidata_id
+        WHERE wsc.substance_wikidata_id IN ({sub_placeholders})
+        ORDER BY wc.name ASC
+    """, sub_qids)
+
+    rows = c.fetchall()
+    conditions = []
+    seen = set()
+    for r in rows:
+        c_name = r["name"]
+        if c_name not in seen:
+            seen.add(c_name)
+            conditions.append({
+                "name": c_name,
+                "wikidata_id": r["condition_wikidata_id"],
+                "substance": r["substance_name"]
+            })
+
+    return {
+        "source_substances": substances,
+        "conditions_count": len(conditions),
+        "conditions": conditions
+    }
+
+
 @app.get("/api/medicine/{produkt_id}")
 def get_medicine_detail(produkt_id: int):
     conn = state["db_conn"]
@@ -387,7 +438,7 @@ def get_medicine_detail(produkt_id: int):
                 other_id = int(m["produkt_id"])
                 if other_id == produkt_id or other_id == 0:
                     continue
-                s_meta = get_medicine_metadata(conn, other_id, atc_map)
+                s_meta = get_medicine_metadata(conn, other_id, atc_map, atc_hierarchy)
                 sim_pct = max(0.0, 1.0 - float(m["distance"])) * 100
                 s_meta["similarity_pct"] = round(sim_pct, 1)
                 s_meta["distance"] = float(m["distance"])
@@ -401,6 +452,9 @@ def get_medicine_detail(produkt_id: int):
 
     # Wikidata Drug-Drug Interactions
     meta["interakcje_wikidata"] = get_wikidata_interactions(conn, produkt_id)
+
+    # Wikidata Medical Uses (Conditions Treated)
+    meta["zastosowanie_wikidata"] = get_wikidata_uses(conn, produkt_id)
 
     return meta
 
