@@ -128,6 +128,53 @@ function renderMedicinePage(med: any): string {
       </div>
     </div>
 
+    ${
+      med.decyzje_gif && med.decyzje_gif.length > 0
+        ? `
+    <div class="gif-alert-box">
+      <div class="gif-alert-header">
+        <span class="gif-alert-icon">ℹ️</span>
+        <b>Komunikat Głównego Inspektora Farmaceutycznego (GIF / RDG)</b>
+      </div>
+      <div class="gif-alert-body">
+        <p class="gif-alert-desc">Dla tego produktu leczniczego zarejestrowano decyzje w Rejestrze Decyzji GIF:</p>
+        <ul class="gif-decision-list">
+          ${med.decyzje_gif
+            .map(
+              (d: any) => `
+            <li class="gif-decision-item">
+              <div class="gif-item-top">
+                <span class="gif-badge ${
+                  d.rodzaj_decyzji === "Wycofanie z obrotu"
+                    ? "badge-wycofanie"
+                    : d.rodzaj_decyzji === "Wstrzymanie w obrocie"
+                    ? "badge-wstrzymanie"
+                    : d.rodzaj_decyzji === "Zakaz wprowadzania"
+                    ? "badge-zakaz"
+                    : "badge-inna"
+                }">${escapeHtml(d.rodzaj_decyzji)}</span>
+                <span class="gif-meta">Decyzja nr <b>${escapeHtml(d.numer_decyzji)}</b> z dnia ${escapeHtml(d.data_decyzji || "b.d.")}</span>
+              </div>
+              ${
+                d.numer_serii
+                  ? `<div class="gif-series">Dotyczy serii: <code>${escapeHtml(d.numer_serii)}</code> ${d.data_waznosci ? `(data ważności: ${escapeHtml(d.data_waznosci)})` : ""}</div>`
+                  : `<div class="gif-series">Dotyczy wszystkich serii / wprowadzenia do obrotu</div>`
+              }
+              ${
+                d.link_decyzja
+                  ? `<div class="gif-link-wrap"><a href="${escapeHtml(d.link_decyzja)}" target="_blank" rel="noopener noreferrer" class="gif-pdf-link">📄 Zobacz treść decyzji GIF (PDF) &rarr;</a></div>`
+                  : ""
+              }
+            </li>
+          `
+            )
+            .join("")}
+        </ul>
+      </div>
+    </div>`
+        : ""
+    }
+
     <div class="info-table">
       <div class="info-group">
         <h3>Klasyfikacja terapeutyczna</h3>

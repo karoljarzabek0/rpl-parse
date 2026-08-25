@@ -121,6 +121,28 @@ def get_medicine_metadata(conn: sqlite3.Connection, produkt_id: int, atc_map: Di
     refund_count = c.fetchone()[0]
     res["is_refundowany"] = bool(refund_count > 0)
 
+    # GIF / RDG Regulatory Decisions
+    c.execute("""
+        SELECT id, numer_decyzji, data_decyzji, rodzaj_decyzji, nazwa_produktu, moc, postac, numer_serii, data_waznosci, link_decyzja
+        FROM decyzje_gif
+        WHERE produkt_id = ?
+        ORDER BY data_decyzji DESC
+    """, (produkt_id,))
+    decisions = [dict(d) for d in c.fetchall()]
+    res["decyzje_gif"] = decisions
+
+    if decisions:
+        latest = decisions[0]
+        res["gif_status"] = latest["rodzaj_decyzji"]
+        res["has_gif_warning"] = latest["rodzaj_decyzji"] in [
+            "Wycofanie z obrotu",
+            "Wstrzymanie w obrocie",
+            "Zakaz wprowadzania"
+        ]
+    else:
+        res["gif_status"] = None
+        res["has_gif_warning"] = False
+
     return res
 
 

@@ -59,14 +59,19 @@ function renderResultsList(results) {
       }
 
       const refundBadge = item.is_refundowany
-        ? '<span style="background:#dcfce7; color:#15803d; font-weight:700; font-size:0.68rem; padding:0.15rem 0.4rem; border-radius:4px; margin-left:0.4rem; border:1px solid #bbf7d0;">Refundowany (NFZ)</span>'
+        ? '<span class="rf-badge-nfz">Refundowany (NFZ)</span>'
         : "";
+
+      let gifBadge = "";
+      if (item.has_gif_warning && item.gif_status) {
+        gifBadge = `<span class="badge-gif-tag">Decyzja GIF: ${escapeHtml(item.gif_status)}</span>`;
+      }
 
       card.innerHTML = `
         <div class="ind-med">
           <div class="ind-med-left">
             <a href="/lek/${item.id}">
-              <h2>${escapeHtml(item.nazwa_produktu)}${refundBadge}</h2>
+              <h2>${escapeHtml(item.nazwa_produktu)}${refundBadge}${gifBadge}</h2>
               <p>${escapeHtml(commonName)}${escapeHtml(mocText)} &bull; ${escapeHtml(item.nazwa_postaci_farmaceutycznej || "")}</p>
             </a>
           </div>
