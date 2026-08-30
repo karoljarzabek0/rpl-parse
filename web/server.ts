@@ -88,11 +88,13 @@ function renderMedicinePage(med: any): string {
     substancesRows = med.substancje
       .map(
         (s: any) =>
-          `<tr><td>${escapeHtml(s.nazwa)}</td><td>${escapeHtml(s.ilosc)} ${escapeHtml(s.jednostka)}</td></tr>`
+          `<tr><td><a href="/substancja/${encodeURIComponent(s.nazwa)}" class="substance-table-link" title="Zobacz szczegółowy profil substancji ${escapeHtml(s.nazwa)}">🔬 <b>${escapeHtml(s.nazwa)}</b> <span class="substance-link-arrow">↗</span></a></td><td>${escapeHtml(s.ilosc)} ${escapeHtml(s.jednostka)}</td></tr>`
       )
       .join("");
+  } else if (med.nazwa_powszechnie_stosowana) {
+    substancesRows = `<tr><td colspan="2"><a href="/substancja/${encodeURIComponent(med.nazwa_powszechnie_stosowana)}" class="substance-table-link" title="Zobacz profil substancji ${escapeHtml(med.nazwa_powszechnie_stosowana)}">🔬 <b>${escapeHtml(med.nazwa_powszechnie_stosowana)}</b> <span class="substance-link-arrow">↗</span></a></td></tr>`;
   } else {
-    substancesRows = `<tr><td colspan="2">${escapeHtml(med.nazwa_powszechnie_stosowana || "Brak danych")}</td></tr>`;
+    substancesRows = `<tr><td colspan="2">Brak danych</td></tr>`;
   }
 
   // Packaging table rows
@@ -554,6 +556,339 @@ function renderMedicinePage(med: any): string {
 </html>`;
 }
 
+function renderSubstancePage(sub: any): string {
+  const atcList = sub.kody_atc || [];
+  const primaryAtc = atcList[0] ? atcList[0].code : "";
+  const iconSvg = getAtcIcon(primaryAtc);
+
+  const conditions = sub.zastosowanie?.conditions || [];
+  const interactions = sub.interakcje?.interactions || [];
+  const products = sub.produkty || [];
+
+  return `<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="icon" type="image/svg+xml" href="/svg/chpl.svg" />
+  <title>${escapeHtml(sub.nazwa_substancji)} — Substancja Czynna — RPL</title>
+  <link rel="stylesheet" href="/style.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:ital,wght@0,100..900;1,100..900&display=swap" rel="stylesheet">
+  <script>
+    function handleBack(e) {
+      if (e) e.preventDefault();
+      if (window.history.length > 1) {
+        window.history.back();
+      } else {
+        const q = sessionStorage.getItem("last_search_query");
+        window.location.href = q ? "/?q=" + encodeURIComponent(q) : "/";
+      }
+    }
+
+    function filterProducts(filterType) {
+      document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+      const activeBtn = document.getElementById('tab-' + filterType);
+      if (activeBtn) activeBtn.classList.add('active');
+
+      const query = (document.getElementById('productSearchInput')?.value || '').toLowerCase().trim();
+      const rows = document.querySelectorAll('.product-row-item');
+      let visibleCount = 0;
+
+      rows.forEach(row => {
+        const isSingle = row.getAttribute('data-single') === 'true';
+        const name = (row.getAttribute('data-name') || '').toLowerCase();
+        const holder = (row.getAttribute('data-holder') || '').toLowerCase();
+
+        let matchesTab = true;
+        if (filterType === 'single') matchesTab = isSingle;
+        if (filterType === 'combo') matchesTab = !isSingle;
+
+        let matchesSearch = true;
+        if (query) {
+          matchesSearch = name.includes(query) || holder.includes(query);
+        }
+
+        if (matchesTab && matchesSearch) {
+          row.style.display = '';
+          visibleCount++;
+        } else {
+          row.style.display = 'none';
+        }
+      });
+
+      const countEl = document.getElementById('visibleProductsCount');
+      if (countEl) countEl.innerText = visibleCount.toString();
+    }
+  </script>
+</head>
+<body>
+  ${renderGlobalHeader({ isHome: false })}
+
+  <div class="single-medicine-main substance-detail-main">
+    <p class="back-link"><a href="/" onclick="handleBack(event)">&larr; Powrót do wyszukiwarki</a></p>
+
+    <!-- Substance Header -->
+    <div class="single-med-header substance-header-card">
+      <div class="header-left">
+        <div class="substance-type-badge">
+          <span class="substance-badge-icon">🧪</span>
+          <span>Substancja Czynna (Rejestr RPL / Ph. Eur.)</span>
+        </div>
+        <h1 class="substance-title-main">${escapeHtml(sub.nazwa_substancji)}</h1>
+        <p class="med-subtitle">
+          ${sub.wikidata?.substance_name ? `Nazwa międzynarodowa (INN / PL): <b>${escapeHtml(sub.wikidata.substance_name)}</b>` : "Nazwa farmakopealna w rejestrze leków"}
+        </p>
+        
+        <div class="substance-badges-bar">
+          ${sub.wikidata?.wikidata_id ? `
+            <a href="${escapeHtml(sub.wikidata.wikidata_url)}" target="_blank" rel="noopener noreferrer" class="icd-badge qid-badge" title="Profil substancji w grafie wiedzy Wikidata">
+              <span class="icd-type">Wikidata</span>
+              <span class="icd-code">${escapeHtml(sub.wikidata.wikidata_id)}</span>
+              <span class="icd-ext-icon">↗</span>
+            </a>
+          ` : ""}
+          
+          ${atcList.map((a: any) => `
+            <span class="atc-code-pill" title="${escapeHtml(a.subgroup || a.group || a.code)}">
+              ATC: <b>${escapeHtml(a.code)}</b> ${a.subgroup ? `(${escapeHtml(a.subgroup)})` : ""}
+            </span>
+          `).join("")}
+        </div>
+
+        <div class="substance-stats-grid">
+          <div class="stat-box">
+            <span class="stat-number">${sub.liczba_produktow}</span>
+            <span class="stat-label">Leków w Polsce</span>
+          </div>
+          <div class="stat-box">
+            <span class="stat-number">${sub.liczba_jednoskladnikowych}</span>
+            <span class="stat-label">Jednoskładnikowych</span>
+          </div>
+          <div class="stat-box">
+            <span class="stat-number">${sub.liczba_wieloskladnikowych}</span>
+            <span class="stat-label">Leków złożonych</span>
+          </div>
+          <div class="stat-box">
+            <span class="stat-number">${conditions.length}</span>
+            <span class="stat-label">Wskazań medycznych</span>
+          </div>
+          <div class="stat-box">
+            <span class="stat-number">${interactions.length}</span>
+            <span class="stat-label">Wykrytych interakcji</span>
+          </div>
+        </div>
+      </div>
+      <div class="header-right">
+        <img src="/svg/${iconSvg}" alt="${escapeHtml(primaryAtc)}" width="64" height="64">
+      </div>
+    </div>
+
+    <!-- Wskazania Medyczne (ICD-11 & ICD-10) -->
+    <div class="interactions-wrapper">
+      <div class="substance-section-card">
+        <div class="section-card-header">
+          <div class="summary-left">
+            <span class="badge-atc">Zastosowanie Medyczne</span>
+            <h2 class="substance-section-title">Wskazania terapeutyczne (ICD-11 & ICD-10)</h2>
+          </div>
+          <div class="summary-right">
+            <span class="interactions-count-badge">${conditions.length} jednostek chorobowych</span>
+          </div>
+        </div>
+
+        <div class="section-card-body">
+          <div class="disclaimer-callout">
+            <b>ℹ️ Informacja medyczna:</b> Jednostki chorobowe i kody klasyfikacji medycznych (ICD-11 MMS, Foundation ID, ICD-10) są przypisane na podstawie ontologii <b>Wikidata</b> (Wikiprojekt Lekoznawstwo) oraz oficjalnego słownika <b>WHO / CeZ</b>. Dokładne wskazania dla konkretnego preparatu handlowego znajdują się w jego Charakterystyce Produktu Leczniczego (ChPL).
+          </div>
+
+          ${conditions.length > 0 ? `
+            <div class="uses-tags-cloud">
+              ${conditions.map((c: any) => `
+                <div class="use-tag-item">
+                  <div class="use-tag-main">
+                    <span class="use-tag-icon">🩺</span>
+                    <span class="use-tag-name">${escapeHtml(c.name)}</span>
+                  </div>
+                  <div class="use-tag-codes">
+                    ${c.icd11_mms || c.icd11_foundation_id ? `
+                      <a href="${escapeHtml(c.icd11_url || ('https://icd.who.int/browse/2026-01/mms/en#' + (c.icd11_foundation_id || '')))}" target="_blank" rel="noopener noreferrer" class="icd-badge icd11-badge" title="ICD-11 (MMS: ${escapeHtml(c.icd11_mms || 'brak')}, Foundation ID: ${escapeHtml(c.icd11_foundation_id || 'brak')})">
+                        <span class="icd-type">ICD-11</span>
+                        <span class="icd-code">${escapeHtml(c.icd11_mms || c.icd11_foundation_id)}</span>
+                        <span class="icd-ext-icon">↗</span>
+                      </a>
+                    ` : ""}
+                    ${c.icd10_codes ? `
+                      <span class="icd-badge icd10-badge" title="ICD-10">
+                        <span class="icd-type">ICD-10</span>
+                        <span class="icd-code">${escapeHtml(c.icd10_codes)}</span>
+                      </span>
+                    ` : ""}
+                    <a href="https://www.wikidata.org/wiki/${escapeHtml(c.wikidata_id)}" target="_blank" rel="noopener noreferrer" class="icd-badge qid-badge" title="Encja Wikidata: ${escapeHtml(c.wikidata_name || c.name)}">
+                      <span class="icd-type">WD</span>
+                      <span class="icd-code">${escapeHtml(c.wikidata_id)}</span>
+                    </a>
+                  </div>
+                </div>
+              `).join("")}
+            </div>
+          ` : `
+            <div class="no-interactions-msg">
+              <p>ℹ️ Brak zarejestrowanych wskazań w otwartym grafie wiedzy Wikidata dla tej substancji.</p>
+            </div>
+          `}
+        </div>
+      </div>
+    </div>
+
+    <!-- Interakcje Farmakologiczne -->
+    <div class="interactions-wrapper">
+      <div class="substance-section-card">
+        <div class="section-card-header">
+          <div class="summary-left">
+            <span class="badge-experimental">Interakcje Lekowe</span>
+            <h2 class="substance-section-title">Interakcje z innymi substancjami czynnymi</h2>
+          </div>
+          <div class="summary-right">
+            <span class="interactions-count-badge">${interactions.length} wykrytych interakcji</span>
+          </div>
+        </div>
+
+        <div class="section-card-body">
+          <div class="disclaimer-callout">
+            <b>ℹ️ Ostrzeżenie o interakcjach:</b> Poniższy wykaz interakcji ma charakter poglądowo-badawczy (baza Wikidata). Przed zastosowaniem leku należy zawsze skonsultować się z lekarzem lub farmaceutą i sprawdzić punkt 4.5 oficjalnego ChPL.
+          </div>
+
+          ${interactions.length > 0 ? `
+            <div class="interactions-grid">
+              ${interactions.map((item: any) => {
+                const atcBadges = item.atc_codes && item.atc_codes.length > 0
+                  ? item.atc_codes.map((c: string) => `<span class="atc-code-pill">${escapeHtml(c)}</span>`).join(" ")
+                  : "";
+                const sampleDrugsHtml = item.sample_drugs && item.sample_drugs.length > 0
+                  ? `<div class="sample-drugs-wrap">
+                      <span class="sample-drugs-label">Przykłady w rejestrze RPL:</span>
+                      <div class="sample-drugs-list">
+                        ${item.sample_drugs
+                          .map((sd: any) => `<a href="/lek/${sd.id}" class="sample-drug-pill" title="${escapeHtml(sd.nazwa_produktu)}">${escapeHtml(sd.nazwa_produktu)}</a>`)
+                          .join("")}
+                      </div>
+                    </div>`
+                  : "";
+                return `
+                  <div class="interaction-card">
+                    <div class="interaction-card-header">
+                      <span class="inter-substance-name">
+                        <a href="/substancja/${encodeURIComponent(item.substance_name)}" class="inter-substance-link" title="Karta substancji ${escapeHtml(item.substance_name)}">
+                          ${escapeHtml(item.substance_name)} ↗
+                        </a>
+                      </span>
+                      ${atcBadges}
+                    </div>
+                    ${sampleDrugsHtml}
+                  </div>
+                `;
+              }).join("")}
+            </div>
+          ` : `
+            <div class="no-interactions-msg">
+              <p>ℹ️ Brak zarejestrowanych interakcji w bazie Wikidata dla tej substancji.</p>
+            </div>
+          `}
+        </div>
+      </div>
+    </div>
+
+    <!-- Leki w Polsce zawierające tę substancję -->
+    <div class="substance-products-section">
+      <div class="section-card-header">
+        <div class="summary-left">
+          <span class="badge-atc">Rejestr Leków RPL</span>
+          <h2 class="substance-section-title">Produkty lecznicze zawierające ${escapeHtml(sub.nazwa_substancji)}</h2>
+        </div>
+        <div class="summary-right">
+          <span class="interactions-count-badge">Widoczne: <b id="visibleProductsCount">${products.length}</b> / ${products.length}</span>
+        </div>
+      </div>
+
+      <!-- Filter Controls & Search -->
+      <div class="products-filter-bar">
+        <div class="tabs-group">
+          <button type="button" id="tab-all" class="tab-btn active" onclick="filterProducts('all')">Wszystkie (${sub.liczba_produktow})</button>
+          <button type="button" id="tab-single" class="tab-btn" onclick="filterProducts('single')">Jednoskładnikowe (${sub.liczba_jednoskladnikowych})</button>
+          <button type="button" id="tab-combo" class="tab-btn" onclick="filterProducts('combo')">Leki złożone (${sub.liczba_wieloskladnikowych})</button>
+        </div>
+        <div class="filter-search-box">
+          <input type="text" id="productSearchInput" placeholder="🔍 Szukaj leku lub podmiotu..." oninput="filterProducts(document.querySelector('.tab-btn.active').id.replace('tab-', ''))" />
+        </div>
+      </div>
+
+      <!-- Products Grid / Table -->
+      <div class="substance-products-table-wrap">
+        <table class="substance-products-table">
+          <thead>
+            <tr>
+              <th>Nazwa handlowa i postać</th>
+              <th>Moc / Dawka</th>
+              <th>Podmiot odpowiedzialny</th>
+              <th>Kategoria</th>
+              <th>Skład preparatu</th>
+              <th>Kod ATC</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${products.map((p: any) => `
+              <tr class="product-row-item" data-single="${p.czy_jednoskladnikowy}" data-name="${escapeHtml(p.nazwa_produktu)}" data-holder="${escapeHtml(p.podmiot_odpowiedzialny || '')}">
+                <td>
+                  <a href="/lek/${p.id}" class="product-name-link" title="Przejdź do karty leku ${escapeHtml(p.nazwa_produktu)}">
+                    <b>${escapeHtml(p.nazwa_produktu)}</b> ↗
+                  </a>
+                  <div class="product-form-text">${escapeHtml(p.nazwa_postaci_farmaceutycznej || "")}</div>
+                </td>
+                <td><span class="product-moc-pill">${escapeHtml(p.moc || "—")}</span></td>
+                <td class="product-holder-text">${escapeHtml(p.podmiot_odpowiedzialny || "—")}</td>
+                <td>
+                  <span class="avail-badge ${p.kategoria_dostepnosci === 'OTC' ? 'avail-otc' : 'avail-rp'}">
+                    ${escapeHtml(p.kategoria_dostepnosci || "—")}
+                  </span>
+                </td>
+                <td>
+                  ${p.czy_jednoskladnikowy
+                    ? `<span class="composition-badge comp-single">Jednoskładnikowy</span>`
+                    : `<div class="composition-badge comp-combo" title="${escapeHtml(p.wszystkie_substancje || '')}">Lek złożony (${p.liczba_substancji} skł.)</div>`
+                  }
+                </td>
+                <td><code>${escapeHtml(p.kod_atc || "—")}</code></td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <p class="back-link-bottom"><a href="/" onclick="handleBack(event)">&larr; Powrót na stronę główną</a></p>
+
+    <footer class="app-footer">
+      <p id="dbStatsText">Baza danych: wczytywanie...</p>
+    </footer>
+  </div>
+
+  <script>
+    fetch('/api/stats')
+      .then(r => r.json())
+      .then(d => {
+        const el = document.getElementById('dbStatsText');
+        if (el) {
+          el.innerHTML = 'Baza RPL: <b>' + d.total_products_xml.toLocaleString() + '</b> leków &bull; Teksty ChPL: <b>' + d.indexed_fts_morfeusz.toLocaleString() + '</b> &bull; Wektory: <b>' + d.indexed_vectors_vec0.toLocaleString() + '</b>';
+        }
+      })
+      .catch(() => {});
+  </script>
+</body>
+</html>`;
+}
+
 const server = Bun.serve({
   port: PORT,
   hostname: "0.0.0.0",
@@ -624,6 +959,72 @@ const server = Bun.serve({
     <h1>Wystąpił błąd serwera</h1>
     <p style="color: #dc2626; margin: 1rem 0 2rem;">${escapeHtml(err.message)}</p>
     <p><a href="/" onclick="handleBack(event)" class="nav-search-btn" style="display: inline-flex;">← Wróć do wyszukiwarki</a></p>
+  </div>
+</body>
+</html>`, {
+          status: 500,
+          headers: { "Content-Type": "text/html; charset=utf-8" },
+        });
+      }
+    }
+
+    // 2. Active Substance Detail Route: /substancja/:name
+    if (url.pathname.startsWith("/substancja/")) {
+      const rawName = url.pathname.slice(12);
+      const substanceName = decodeURIComponent(rawName);
+      try {
+        const res = await fetch(`${API_BACKEND}/api/substance/${encodeURIComponent(substanceName)}`);
+        if (!res.ok) {
+          return new Response(`<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="icon" type="image/svg+xml" href="/svg/chpl.svg" />
+  <title>Nie znaleziono substancji — RPL</title>
+  <link rel="stylesheet" href="/style.css" />
+  <script>
+    function handleBack(e) {
+      if (e) e.preventDefault();
+      const q = sessionStorage.getItem("last_search_query");
+      window.location.href = q ? "/?q=" + encodeURIComponent(q) : "/";
+    }
+  </script>
+</head>
+<body>
+  ${renderGlobalHeader({ isHome: false })}
+  <div class="single-medicine-main" style="text-align: center; padding: 2.5rem 1rem;">
+    <h1>Substancja nie została odnaleziona</h1>
+    <p style="color: var(--text-gray); margin: 1rem 0 2rem;">Substancja czynna <b>"${escapeHtml(substanceName)}"</b> nie występuje w polskim rejestrze leków RPL.</p>
+    <p><a href="/" onclick="handleBack(event)" class="nav-search-btn" style="display: inline-flex;">← Wróć do wyszukiwarki</a></p>
+  </div>
+</body>
+</html>`, {
+            status: 404,
+            headers: { "Content-Type": "text/html; charset=utf-8" },
+          });
+        }
+        const subData = await res.json();
+        const pageHtml = renderSubstancePage(subData);
+        return new Response(pageHtml, {
+          headers: { "Content-Type": "text/html; charset=utf-8" },
+        });
+      } catch (err: any) {
+        return new Response(`<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="icon" type="image/svg+xml" href="/svg/chpl.svg" />
+  <title>Błąd serwera — RPL</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  ${renderGlobalHeader({ isHome: false })}
+  <div class="single-medicine-main" style="text-align: center; padding: 2.5rem 1rem;">
+    <h1>Wystąpił błąd serwera</h1>
+    <p style="color: #dc2626; margin: 1rem 0 2rem;">${escapeHtml(err.message)}</p>
+    <p><a href="/" class="nav-search-btn" style="display: inline-flex;">← Wróć do wyszukiwarki</a></p>
   </div>
 </body>
 </html>`, {
