@@ -11,6 +11,7 @@ Serwer backendu API (`python/api_server.py`) został zbudowany przy użyciu fram
 | `GET` | `/api/stats` | Zwraca aktualne statystyki bazy danych i stan modelu wektorowego. |
 | `GET` | `/api/search` | Główne zapytanie hybrydowe (RRF), wektorowe lub pełnotekstowe (FTS5). |
 | `GET` | `/api/medicine/{id}` | Pełna karta leku (ChPL Markdown, refundacja, decyzje GIF, interakcje Wikidata, podobne leki). |
+| `GET` | `/api/substance/{name}` | Dedykowany profil substancji czynnej (wskazania ICD-11/10, interakcje, lista leków w RPL). |
 | `GET` | `/api/suggestions` | Podpowiedzi autouzupełniania dla paska wyszukiwania. |
 
 ---
@@ -134,5 +135,80 @@ Zwraca komplet informacji o wybranym preparacie leczniczym.
     ]
   },
   "chpl_markdown": "# 1. NAZWA PRODUKTU LECZNICZEGO\nAcard, 75 mg, tabletki dojelitowe..."
+}
+```
+
+---
+
+### 2.4 `GET /api/substance/{substance_name}`
+Zwraca komplet informacji o wybranej substancji czynnej, jej wskazaniach medycznych (ICD-11 / ICD-10), interakcjach z innymi lekami oraz wszystkich zarejestrowanych w Polsce lekach zawierających tę substancję.
+
+#### Elastyczne Rozpoznawanie Wejścia (*Flexible Multi-Source Resolution*):
+Endpoint automatycznie rozpoznaje i rozwiązuje:
+1. **Nazwy farmakopealne / łacińskie z RPL** (np. `Paracetamolum`, `Methadoni hydrochloridum`, `Amlodipini besilas`).
+2. **Nazwy międzynarodowe i etykiety Wikidata** (np. `paracetamol`, `(RS)-metadon`, `rac-warfaryna`, `droperydol`).
+3. **Identyfikatory QID z Wikidata** (np. `Q57055`, `Q179996`).
+4. **Nazwy z prefiksami stereoizomerów** (automatyczne oczyszczanie prefiksów `(RS)-`, `(R)-`, `(S)-`, `rac-`, `dl-`).
+5. **Substancje wyłącznie międzynarodowe** (gdy substancja nie ma jeszcze leku w Polsce, zwraca jej pełny profil Wikidata bez błędu 404).
+
+#### Przykładowa odpowiedź:
+```json
+{
+  "nazwa_substancji": "(RS)-metadon",
+  "canonical_rpl_name": "Methadoni hydrochloridum",
+  "wikidata": {
+    "wikidata_id": "Q179996",
+    "substance_name": "(RS)-metadon",
+    "wikidata_url": "https://www.wikidata.org/wiki/Q179996"
+  },
+  "kody_atc": [
+    {
+      "code": "N07BC02",
+      "subgroup": "Leki stosowane w uzależnieniu od opioidów",
+      "group": "Układ nerwowy"
+    }
+  ],
+  "liczba_produktow": 6,
+  "liczba_jednoskladnikowych": 6,
+  "liczba_wieloskladnikowych": 0,
+  "produkty": [
+    {
+      "id": 100018988,
+      "nazwa_produktu": "Methadone Hydrochloride Molteni",
+      "moc": "1 mg/ml",
+      "nazwa_postaci_farmaceutycznej": "Syrop",
+      "podmiot_odpowiedzialny": "L. Molteni & C. dei F.lli Alitti Societa di Esercizio S.p.A.",
+      "kategoria_dostepnosci": "Rpw",
+      "czy_jednoskladnikowy": true,
+      "kod_atc": "N07BC02"
+    }
+  ],
+  "zastosowanie": {
+    "conditions_count": 1,
+    "conditions": [
+      {
+        "name": "Uzależnienie od opioidów",
+        "wikidata_name": "opioid use disorder",
+        "wikidata_id": "Q2891965",
+        "icd11_mms": "6C40",
+        "icd11_foundation_id": "1802951759",
+        "icd11_url": "https://icd.who.int/browse/2026-01/mms/en#1802951759",
+        "icd10_codes": "F11"
+      }
+    ]
+  },
+  "interakcje": {
+    "interactions_count": 110,
+    "interactions": [
+      {
+        "wikidata_id": "Q411347",
+        "substance_name": "(RS)-amlodypina",
+        "atc_codes": ["C08CA01"],
+        "sample_drugs": [
+          { "id": 100000301, "nazwa_produktu": "Amlopin", "moc": "5 mg" }
+        ]
+      }
+    ]
+  }
 }
 ```

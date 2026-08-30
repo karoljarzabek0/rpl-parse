@@ -10,6 +10,7 @@ Serwer działa pod kontrolą środowiska **Bun** i odpowiada za:
 - **Routing URL**:
   - `/` — strona główna wyszukiwarki (serwuje statyczny szablon `index.html`),
   - `/lek/:id` — pełna karta produktu leczniczego generowana w locie po stronie serwera (SSR),
+  - `/substancja/:name` — dedykowana karta substancji czynnej z wykazem leków, wskazań i interakcji (SSR),
   - `/api/*` — transparentny proxy do serwera Pythona (`http://127.0.0.1:8000`),
   - `/svg/*`, `/style.css`, `/app.js` — serwowanie zasobów statycznych.
 - **Natywny Parser Markdown w Rust**:
@@ -71,3 +72,50 @@ Karta produktu leczniczego składa się z logicznych bloków prezentujących kom
 
 ### 3.6 Pełna Treść ChPL (SmPC Markdown)
 - Sformatowana, czytelna treść urzędowej Charakterystyki Produktu Leczniczego (wskazania, przeciwwskazania, dawkowanie, farmakokinetyka, działania niepożądane).
+
+---
+
+## 4. Dedykowana Karta Substancji Czynnej (`/substancja/:name`)
+
+Każda substancja czynna wyodrębniona z rejestru RPL (`substancje_czynne`) oraz powiązana z grafem wiedzy Wikidata posiada dedykowaną podstronę profilową:
+
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│ 🧪 SUBSTANCJA CZYNNA (Rejestr RPL / Ph. Eur.)                         │
+│                                                                        │
+│ Paracetamolum                                                          │
+│ Nazwa międzynarodowa (INN / PL): paracetamol • [Wikidata: Q57055 ↗]   │
+│ [ATC: N02BE01 (Leki przeciwbólowe i przeciwgorączkowe)]                │
+├────────────────────────────────────────────────────────────────────────┤
+│ [285 Leków w Polsce] [100 Jednoskładnikowych] [185 Leków złożonych]    │
+│ [5 Wskazań medycznych] [11 Wykrytych interakcji]                       │
+├────────────────────────────────────────────────────────────────────────┤
+│ 🩺 Wskazania terapeutyczne (ICD-11 & ICD-10):                          │
+│   • Ból [ICD-11: MG3Z ↗] [ICD-10: R52.9] [WD: Q81938]                  │
+│   • Gorączka [ICD-11: MG26 ↗] [ICD-10: R50] [WD: Q38986]               │
+├────────────────────────────────────────────────────────────────────────┤
+│ ⚡ Interakcje z innymi substancjami:                                   │
+│   • rac-warfaryna (Warfin ↗) • azydotymidyna (Combivir ↗)              │
+├────────────────────────────────────────────────────────────────────────┤
+│ 💊 Produkty lecznicze w Polsce:                                        │
+│   [Wszystkie (285)] [Jednoskładnikowe (100)] [Leki złożone (185)]      │
+│   [🔍 Szukaj leku lub podmiotu...                                   ]  │
+│   - APAP (500 mg) • US Pharmacia • OTC • Jednoskładnikowy • N02BE01    │
+│   - Gripex Control Duo • US Pharmacia • OTC • Lek złożony • N02BE51    │
+└────────────────────────────────────────────────────────────────────────┘
+```
+
+### 4.1 Podlinkowanie z Kart Produktów Leczniczych (`/lek/:id`)
+Wszystkie substancje czynne w tabeli składu oraz w podtytule karty leku są aktywnymi odnośnikami prowadzącymi do ich kart profilowych (np. `[🔬 Paracetamolum ↗](/substancja/Paracetamolum)`).
+
+### 4.2 Interaktywne Filtrowanie Produktów po Stronie Klienta (0 ms Latency)
+- **Karty wyboru**: Błyskawiczny podział na preparaty `Wszystkie`, `Jednoskładnikowe` oraz `Leki złożone`.
+- **Wyszukiwarka na żywo**: Filtrowanie tabeli po nazwie handlowej, postaci lub podmiocie odpowiedzialnym w trakcie pisania.
+
+### 4.3 Odporność na Różnice Nomenklaturowe i Izomery
+Dzięki wielopoziomowemu resolverowi użytkownik może wpisać w adresie URL zarówno:
+- oficjalną nazwę łacińską (`/substancja/Methadoni%20hydrochloridum`),
+- nazwę polską z prefiksem stereochemicznym (`/substancja/(RS)-metadon`),
+- identyfikator Wikidata (`/substancja/Q179996`),
+a system bezbłędnie zmapuje encję i wyświetli powiązane leki w Polsce.
+
