@@ -522,117 +522,218 @@ def get_substance_detail(substance_name: str):
     atc_hierarchy = state.get("atc_hierarchy", {})
     c = conn.cursor()
 
-    # 1. Resolve canonical substance name from substancje_czynne or rpl_substance_wikidata
+    canonical_rpl_name = None
+    sub_qids = []
+    display_title = sub_name_clean
+    wikidata_info = None
+
+    # 1. Exact match in substancje_czynne
     c.execute("""
         SELECT DISTINCT nazwa_substancji 
         FROM substancje_czynne 
         WHERE nazwa_substancji = ? COLLATE NOCASE
     """, (sub_name_clean,))
     row = c.fetchone()
-    if not row:
+    if row:
+        canonical_rpl_name = row["nazwa_substancji"]
+        display_title = canonical_rpl_name
+    else:
+        # 2. Check in rpl_substance_wikidata
         c.execute("""
-            SELECT DISTINCT nazwa_substancji 
+            SELECT nazwa_substancji, wikidata_id, substance_name 
             FROM rpl_substance_wikidata 
-            WHERE substance_name = ? COLLATE NOCASE OR wikidata_id = ?
+            WHERE nazwa_substancji = ? COLLATE NOCASE OR substance_name = ? COLLATE NOCASE
         """, (sub_name_clean, sub_name_clean))
         row = c.fetchone()
+        if row:
+            canonical_rpl_name = row["nazwa_substancji"]
+            sub_qids.append(row["wikidata_id"])
+            display_title = canonical_rpl_name
+        else:
+            # 3. Check QID or wikidata_substances
+            if sub_name_clean.upper().startswith("Q") and sub_name_clean[1:].isdigit():
+                c.execute("""
+                    SELECT wikidata_id, name FROM wikidata_substances WHERE wikidata_id = ?
+                """, (sub_name_clean.upper(),))
+            else:
+                c.execute("""
+                    SELECT wikidata_id, name FROM wikidata_substances WHERE name = ? COLLATE NOCASE
+                """, (sub_name_clean,))
+            wd_match = c.fetchone()
+            if wd_match:
+                sub_qids.append(wd_match["wikidata_id"])
+                display_title = wd_match["name"]
+            else:
+                # Strip stereoisomer prefixes: (RS)-, (R)-, (S)-, rac-, dl-
+                clean_q = re.sub(r'^\((?:RS|R|S)\)-|^rac-|^dl-', '', sub_name_clean, flags=re.I).strip()
+                c.execute("""
+                    SELECT wikidata_id, name FROM wikidata_substances WHERE name = ? COLLATE NOCASE OR name LIKE ?
+                    ORDER BY length(name) ASC LIMIT 1
+                """, (clean_q, f"%{clean_q}%"))
+                wd_match = c.fetchone()
+                if wd_match:
+                    sub_qids.append(wd_match["wikidata_id"])
+                    display_title = wd_match["name"]
+                else:
+                    # Fuzzy match in substancje_czynne
+                    c.execute("""
+                        SELECT DISTINCT nazwa_substancji FROM substancje_czynne WHERE nazwa_substancji LIKE ? LIMIT 1
+                    """, (f"%{clean_q}%",))
+                    fuzzy_row = c.fetchone()
+                    if fuzzy_row:
+                        canonical_rpl_name = fuzzy_row["nazwa_substancji"]
+                        display_title = canonical_rpl_name
 
-    if not row:
-        # Fuzzy search
+    # If nothing resolved anywhere
+    if not canonical_rpl_name and not sub_qids:
+        raise HTTPException(status_code=404, detail=f"Substancja '{sub_name_clean}' nie została odnaleziona w bazie RPL ani Wikidata")
+
+    # If canonical_rpl_name found, find its QID if not already found
+    if canonical_rpl_name and not sub_qids:
         c.execute("""
-            SELECT DISTINCT nazwa_substancji 
-            FROM substancje_czynne 
-            WHERE nazwa_substancji LIKE ?
-            LIMIT 1
-        """, (f"%{sub_name_clean}%",))
-        row = c.fetchone()
+            SELECT wikidata_id, substance_name FROM rpl_substance_wikidata WHERE nazwa_substancji = ? COLLATE NOCASE
+        """, (canonical_rpl_name,))
+        rsw = c.fetchone()
+        if rsw:
+            sub_qids.append(rsw["wikidata_id"])
+            wikidata_info = {
+                "wikidata_id": rsw["wikidata_id"],
+                "substance_name": rsw["substance_name"],
+                "wikidata_url": f"https://www.wikidata.org/wiki/{rsw['wikidata_id']}"
+            }
 
-    if not row:
-        raise HTTPException(status_code=404, detail=f"Substancja '{sub_name_clean}' nie została odnaleziona w bazie RPL")
+    # Discover mapped RPL substances if we started from QID
+    matched_rpl_names = []
+    if canonical_rpl_name:
+        matched_rpl_names.append(canonical_rpl_name)
+    if sub_qids:
+        q_ph = ",".join(["?"] * len(sub_qids))
+        c.execute(f"""
+            SELECT DISTINCT nazwa_substancji FROM rpl_substance_wikidata WHERE wikidata_id IN ({q_ph})
+        """, sub_qids)
+        for r in c.fetchall():
+            if r["nazwa_substancji"] not in matched_rpl_names:
+                matched_rpl_names.append(r["nazwa_substancji"])
 
-    canonical_rpl_name = row["nazwa_substancji"]
+    # Discover ATCs from QIDs
+    discovered_atcs = set()
+    if sub_qids:
+        q_ph = ",".join(["?"] * len(sub_qids))
+        c.execute(f"""
+            SELECT DISTINCT atc_code FROM wikidata_atc_substance WHERE substance_wikidata_id IN ({q_ph})
+        """, sub_qids)
+        for r in c.fetchall():
+            if r["atc_code"]:
+                discovered_atcs.add(r["atc_code"])
 
-    # 2. Fetch all products containing this substance
-    c.execute("""
-        SELECT DISTINCT 
-            p.id,
-            p.nazwa_produktu,
-            p.moc,
-            p.nazwa_postaci_farmaceutycznej,
-            p.podmiot_odpowiedzialny,
-            p.typ_procedury,
-            p.waznosc_pozwolenia,
-            (SELECT kod_atc FROM kody_atc WHERE produkt_id = p.id LIMIT 1) as kod_atc,
-            (SELECT kategoria_dostepnosci FROM opakowania WHERE produkt_id = p.id AND kategoria_dostepnosci IS NOT NULL LIMIT 1) as kategoria_dostepnosci,
-            (SELECT COUNT(*) FROM substancje_czynne WHERE produkt_id = p.id) as liczba_substancji,
-            (SELECT GROUP_CONCAT(nazwa_substancji, ', ') FROM substancje_czynne WHERE produkt_id = p.id) as wszystkie_substancje
-        FROM substancje_czynne sc
-        JOIN produkty_lecznicze p ON p.id = sc.produkt_id
-        WHERE sc.nazwa_substancji = ? COLLATE NOCASE
-        ORDER BY p.nazwa_produktu ASC
-    """, (canonical_rpl_name,))
-
+    # 2. Fetch Products
     products = []
-    distinct_atcs = set()
-    for r in c.fetchall():
-        p_dict = dict(r)
-        atc = p_dict.get("kod_atc")
-        if atc:
-            distinct_atcs.add(atc)
-        p_dict["czy_jednoskladnikowy"] = (p_dict.get("liczba_substancji") == 1)
-        products.append(p_dict)
+    seen_prod_ids = set()
+
+    # Query products by matched RPL substance names
+    if matched_rpl_names:
+        name_ph = ",".join(["?"] * len(matched_rpl_names))
+        c.execute(f"""
+            SELECT DISTINCT 
+                p.id,
+                p.nazwa_produktu,
+                p.moc,
+                p.nazwa_postaci_farmaceutycznej,
+                p.podmiot_odpowiedzialny,
+                p.typ_procedury,
+                p.waznosc_pozwolenia,
+                (SELECT kod_atc FROM kody_atc WHERE produkt_id = p.id LIMIT 1) as kod_atc,
+                (SELECT kategoria_dostepnosci FROM opakowania WHERE produkt_id = p.id AND kategoria_dostepnosci IS NOT NULL LIMIT 1) as kategoria_dostepnosci,
+                (SELECT COUNT(*) FROM substancje_czynne WHERE produkt_id = p.id) as liczba_substancji,
+                (SELECT GROUP_CONCAT(nazwa_substancji, ', ') FROM substancje_czynne WHERE produkt_id = p.id) as wszystkie_substancje
+            FROM substancje_czynne sc
+            JOIN produkty_lecznicze p ON p.id = sc.produkt_id
+            WHERE sc.nazwa_substancji IN ({name_ph})
+            ORDER BY p.nazwa_produktu ASC
+        """, matched_rpl_names)
+        for r in c.fetchall():
+            pid = r["id"]
+            if pid not in seen_prod_ids:
+                seen_prod_ids.add(pid)
+                p_dict = dict(r)
+                atc = p_dict.get("kod_atc")
+                if atc:
+                    discovered_atcs.add(atc)
+                p_dict["czy_jednoskladnikowy"] = (p_dict.get("liczba_substancji") == 1)
+                products.append(p_dict)
+
+    # If no products from names, but we have discovered ATCs, find products by ATC
+    if not products and discovered_atcs:
+        atc_ph = ",".join(["?"] * len(discovered_atcs))
+        c.execute(f"""
+            SELECT DISTINCT 
+                p.id,
+                p.nazwa_produktu,
+                p.moc,
+                p.nazwa_postaci_farmaceutycznej,
+                p.podmiot_odpowiedzialny,
+                p.typ_procedury,
+                p.waznosc_pozwolenia,
+                a.kod_atc,
+                (SELECT kategoria_dostepnosci FROM opakowania WHERE produkt_id = p.id AND kategoria_dostepnosci IS NOT NULL LIMIT 1) as kategoria_dostepnosci,
+                (SELECT COUNT(*) FROM substancje_czynne WHERE produkt_id = p.id) as liczba_substancji,
+                (SELECT GROUP_CONCAT(nazwa_substancji, ', ') FROM substancje_czynne WHERE produkt_id = p.id) as wszystkie_substancje
+            FROM kody_atc a
+            JOIN produkty_lecznicze p ON p.id = a.produkt_id
+            WHERE a.kod_atc IN ({atc_ph})
+            ORDER BY p.nazwa_produktu ASC
+        """, list(discovered_atcs))
+        for r in c.fetchall():
+            pid = r["id"]
+            if pid not in seen_prod_ids:
+                seen_prod_ids.add(pid)
+                p_dict = dict(r)
+                p_dict["czy_jednoskladnikowy"] = (p_dict.get("liczba_substancji") == 1)
+                products.append(p_dict)
+
+    # Check if products provide fallback QIDs if sub_qids was empty
+    if not sub_qids and discovered_atcs:
+        atc_ph = ",".join(["?"] * len(discovered_atcs))
+        c.execute(f"""
+            SELECT DISTINCT ws.wikidata_id, ws.name
+            FROM wikidata_atc_substance was
+            JOIN wikidata_substances ws ON ws.wikidata_id = was.substance_wikidata_id
+            WHERE was.atc_code IN ({atc_ph})
+        """, list(discovered_atcs))
+        for r in c.fetchall():
+            sub_qids.append(r["wikidata_id"])
+            if not wikidata_info:
+                wikidata_info = {
+                    "wikidata_id": r["wikidata_id"],
+                    "substance_name": r["name"],
+                    "wikidata_url": f"https://www.wikidata.org/wiki/{r['wikidata_id']}"
+                }
+
+    # Build wikidata_info if still None
+    if sub_qids and not wikidata_info:
+        c.execute("""
+            SELECT wikidata_id, name FROM wikidata_substances WHERE wikidata_id = ?
+        """, (sub_qids[0],))
+        wd_row = c.fetchone()
+        if wd_row:
+            wikidata_info = {
+                "wikidata_id": wd_row["wikidata_id"],
+                "substance_name": wd_row["name"],
+                "wikidata_url": f"https://www.wikidata.org/wiki/{wd_row['wikidata_id']}"
+            }
 
     # 3. Formulate ATC descriptions
     atc_list = []
-    for atc_code in sorted(distinct_atcs):
+    for atc_code in sorted(discovered_atcs):
         atc_list.append(describe_atc_code(atc_code, atc_map, atc_hierarchy))
 
-    # 4. Wikidata Mapping info
-    c.execute("""
-        SELECT rsw.wikidata_id, rsw.substance_name, ws.name as canonical_name
-        FROM rpl_substance_wikidata rsw
-        LEFT JOIN wikidata_substances ws ON ws.wikidata_id = rsw.wikidata_id
-        WHERE rsw.nazwa_substancji = ? COLLATE NOCASE
-    """, (canonical_rpl_name,))
-    wd_row = c.fetchone()
-
-    wikidata_info = None
-    sub_qids = []
-
-    if wd_row:
-        qid = wd_row["wikidata_id"]
-        sub_qids.append(qid)
-        wikidata_info = {
-            "wikidata_id": qid,
-            "substance_name": wd_row["substance_name"] or wd_row["canonical_name"] or "",
-            "wikidata_url": f"https://www.wikidata.org/wiki/{qid}"
-        }
-    else:
-        # Fallback to ATC QIDs
-        if distinct_atcs:
-            atc_ph = ",".join(["?"] * len(distinct_atcs))
-            c.execute(f"""
-                SELECT DISTINCT ws.wikidata_id, ws.name
-                FROM wikidata_atc_substance was
-                JOIN wikidata_substances ws ON ws.wikidata_id = was.substance_wikidata_id
-                WHERE was.atc_code IN ({atc_ph})
-            """, list(distinct_atcs))
-            for r in c.fetchall():
-                sub_qids.append(r["wikidata_id"])
-                if not wikidata_info:
-                    wikidata_info = {
-                        "wikidata_id": r["wikidata_id"],
-                        "substance_name": r["name"],
-                        "wikidata_url": f"https://www.wikidata.org/wiki/{r['wikidata_id']}"
-                    }
-
+    # 4. Conditions and Interactions
     conditions = []
     interactions = []
 
     if sub_qids:
         q_ph = ",".join(["?"] * len(sub_qids))
 
-        # 5. Conditions treated
         c.execute(f"""
             SELECT DISTINCT 
                 wc.condition_wikidata_id,
@@ -647,7 +748,6 @@ def get_substance_detail(substance_name: str):
             WHERE wsc.substance_wikidata_id IN ({q_ph})
             ORDER BY name ASC
         """, sub_qids)
-
         seen_conds = set()
         for r in c.fetchall():
             cid = r["condition_wikidata_id"]
@@ -663,7 +763,6 @@ def get_substance_detail(substance_name: str):
                     "icd10_codes": r["icd10_codes"] or ""
                 })
 
-        # 6. Drug interactions
         c.execute(f"""
             SELECT DISTINCT i.interacts_with_wikidata_id as qid, ws.name as substance_name
             FROM wikidata_interactions i
@@ -682,7 +781,7 @@ def get_substance_detail(substance_name: str):
             iw_name = inter_row["substance_name"]
 
             c.execute("SELECT atc_code FROM wikidata_atc_substance WHERE substance_wikidata_id = ?", (iw_qid,))
-            iw_atcs = [r["atc_code"] for r in c.fetchall()]
+            iw_atcs = [r["atc_code"] for r in c.fetchall() if r["atc_code"]]
 
             sample_drugs = []
             if iw_atcs:
@@ -719,7 +818,8 @@ def get_substance_detail(substance_name: str):
             })
 
     return {
-        "nazwa_substancji": canonical_rpl_name,
+        "nazwa_substancji": display_title,
+        "canonical_rpl_name": canonical_rpl_name,
         "wikidata": wikidata_info,
         "kody_atc": atc_list,
         "liczba_produktow": len(products),

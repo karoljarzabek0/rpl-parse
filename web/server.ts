@@ -805,66 +805,73 @@ function renderSubstancePage(sub: any): string {
       <div class="section-card-header">
         <div class="summary-left">
           <span class="badge-atc">Rejestr Leków RPL</span>
-          <h2 class="substance-section-title">Produkty lecznicze zawierające ${escapeHtml(sub.nazwa_substancji)}</h2>
+          <h2 class="substance-section-title">Produkty lecznicze w Polsce (${sub.liczba_produktow})</h2>
         </div>
         <div class="summary-right">
           <span class="interactions-count-badge">Widoczne: <b id="visibleProductsCount">${products.length}</b> / ${products.length}</span>
         </div>
       </div>
 
-      <!-- Filter Controls & Search -->
-      <div class="products-filter-bar">
-        <div class="tabs-group">
-          <button type="button" id="tab-all" class="tab-btn active" onclick="filterProducts('all')">Wszystkie (${sub.liczba_produktow})</button>
-          <button type="button" id="tab-single" class="tab-btn" onclick="filterProducts('single')">Jednoskładnikowe (${sub.liczba_jednoskladnikowych})</button>
-          <button type="button" id="tab-combo" class="tab-btn" onclick="filterProducts('combo')">Leki złożone (${sub.liczba_wieloskladnikowych})</button>
+      ${products.length > 0 ? `
+        <!-- Filter Controls & Search -->
+        <div class="products-filter-bar">
+          <div class="tabs-group">
+            <button type="button" id="tab-all" class="tab-btn active" onclick="filterProducts('all')">Wszystkie (${sub.liczba_produktow})</button>
+            <button type="button" id="tab-single" class="tab-btn" onclick="filterProducts('single')">Jednoskładnikowe (${sub.liczba_jednoskladnikowych})</button>
+            <button type="button" id="tab-combo" class="tab-btn" onclick="filterProducts('combo')">Leki złożone (${sub.liczba_wieloskladnikowych})</button>
+          </div>
+          <div class="filter-search-box">
+            <input type="text" id="productSearchInput" placeholder="🔍 Szukaj leku lub podmiotu..." oninput="filterProducts(document.querySelector('.tab-btn.active').id.replace('tab-', ''))" />
+          </div>
         </div>
-        <div class="filter-search-box">
-          <input type="text" id="productSearchInput" placeholder="🔍 Szukaj leku lub podmiotu..." oninput="filterProducts(document.querySelector('.tab-btn.active').id.replace('tab-', ''))" />
-        </div>
-      </div>
 
-      <!-- Products Grid / Table -->
-      <div class="substance-products-table-wrap">
-        <table class="substance-products-table">
-          <thead>
-            <tr>
-              <th>Nazwa handlowa i postać</th>
-              <th>Moc / Dawka</th>
-              <th>Podmiot odpowiedzialny</th>
-              <th>Kategoria</th>
-              <th>Skład preparatu</th>
-              <th>Kod ATC</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${products.map((p: any) => `
-              <tr class="product-row-item" data-single="${p.czy_jednoskladnikowy}" data-name="${escapeHtml(p.nazwa_produktu)}" data-holder="${escapeHtml(p.podmiot_odpowiedzialny || '')}">
-                <td>
-                  <a href="/lek/${p.id}" class="product-name-link" title="Przejdź do karty leku ${escapeHtml(p.nazwa_produktu)}">
-                    <b>${escapeHtml(p.nazwa_produktu)}</b> ↗
-                  </a>
-                  <div class="product-form-text">${escapeHtml(p.nazwa_postaci_farmaceutycznej || "")}</div>
-                </td>
-                <td><span class="product-moc-pill">${escapeHtml(p.moc || "—")}</span></td>
-                <td class="product-holder-text">${escapeHtml(p.podmiot_odpowiedzialny || "—")}</td>
-                <td>
-                  <span class="avail-badge ${p.kategoria_dostepnosci === 'OTC' ? 'avail-otc' : 'avail-rp'}">
-                    ${escapeHtml(p.kategoria_dostepnosci || "—")}
-                  </span>
-                </td>
-                <td>
-                  ${p.czy_jednoskladnikowy
-                    ? `<span class="composition-badge comp-single">Jednoskładnikowy</span>`
-                    : `<div class="composition-badge comp-combo" title="${escapeHtml(p.wszystkie_substancje || '')}">Lek złożony (${p.liczba_substancji} skł.)</div>`
-                  }
-                </td>
-                <td><code>${escapeHtml(p.kod_atc || "—")}</code></td>
+        <!-- Products Grid / Table -->
+        <div class="substance-products-table-wrap">
+          <table class="substance-products-table">
+            <thead>
+              <tr>
+                <th>Nazwa handlowa i postać</th>
+                <th>Moc / Dawka</th>
+                <th>Podmiot odpowiedzialny</th>
+                <th>Kategoria</th>
+                <th>Skład preparatu</th>
+                <th>Kod ATC</th>
               </tr>
-            `).join("")}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              ${products.map((p: any) => `
+                <tr class="product-row-item" data-single="${p.czy_jednoskladnikowy}" data-name="${escapeHtml(p.nazwa_produktu)}" data-holder="${escapeHtml(p.podmiot_odpowiedzialny || '')}">
+                  <td>
+                    <a href="/lek/${p.id}" class="product-name-link" title="Przejdź do karty leku ${escapeHtml(p.nazwa_produktu)}">
+                      <b>${escapeHtml(p.nazwa_produktu)}</b> ↗
+                    </a>
+                    <div class="product-form-text">${escapeHtml(p.nazwa_postaci_farmaceutycznej || "")}</div>
+                  </td>
+                  <td><span class="product-moc-pill">${escapeHtml(p.moc || "—")}</span></td>
+                  <td class="product-holder-text">${escapeHtml(p.podmiot_odpowiedzialny || "—")}</td>
+                  <td>
+                    <span class="avail-badge ${p.kategoria_dostepnosci === 'OTC' ? 'avail-otc' : 'avail-rp'}">
+                      ${escapeHtml(p.kategoria_dostepnosci || "—")}
+                    </span>
+                  </td>
+                  <td>
+                    ${p.czy_jednoskladnikowy
+                      ? `<span class="composition-badge comp-single">Jednoskładnikowy</span>`
+                      : `<div class="composition-badge comp-combo" title="${escapeHtml(p.wszystkie_substancje || '')}">Lek złożony (${p.liczba_substancji} skł.)</div>`
+                    }
+                  </td>
+                  <td><code>${escapeHtml(p.kod_atc || "—")}</code></td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        </div>
+      ` : `
+        <div class="no-interactions-msg" style="padding: 1.5rem; text-align: center;">
+          <p>ℹ️ <b>Brak zarejestrowanych preparatów handlowych w Rejestrze RPL</b> dla tej substancji.</p>
+          <p class="no-inter-sub" style="margin-top: 0.35rem;">Substancja występuje w bazach międzynarodowych (Wikidata) lub jako związek wchodzący w interakcje farmakologiczne.</p>
+        </div>
+      `}
     </div>
 
     <p class="back-link-bottom"><a href="/" onclick="handleBack(event)">&larr; Powrót na stronę główną</a></p>
