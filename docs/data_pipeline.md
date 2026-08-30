@@ -103,3 +103,33 @@ SELECT ?substance ?substanceLabel ?substanceAtc ?interactsWith ?interactsWithLab
 2. **Mapowanie do Wikidata**: Wyszukanie encji substancji czynnej po kodzie ATC (`wdt:P267`) $\to$ `Q18216` (kwas acetylosalicylowy).
 3. **Pobranie interakcji (`wdt:P769`)**: Wyszukanie wszystkich substancji, z którymi dana substancja wchodzi w interakcję (relacja symetryczna).
 4. **Rozwinięcie do kodów ATC i preparatów RPL**: Dla każdej wchodzącej w interakcję substancji pobierane są jej kody ATC, a następnie wyszukiwane są przykładowe zarejestrowane w Polsce leki zawierające ten kod ATC.
+
+---
+
+## 6. Rurociąg Leków Procedury Centralnej (CEN / EMA / Komisja Europejska) (`import_cen_pipeline.py`)
+
+Leki rejestrowane w procedurze centralnej (**CEN**) nie posiadają krajowych linków ChPL w rejestrze URPL, ponieważ ich autoryzacja i dokumentacja są publikowane bezpośrednio przez **Komisję Europejską (DG SANTE / Union Register)** oraz **EMA**.
+
+### 6.1 Algorytm Dopasowania (RPL $\to$ Unijny Rejestr)
+1. **Pobranie Otwartego Zbioru Komisji Europejskiej**:
+   - Źródło: `https://ec.europa.eu/health/documents/community-register/ods/ods_products.json`
+   - Indeksowanie po numerze unijnym `EUNumber` (`EU/1/YY/NNN`) oraz po znormalizowanych nazwach handlowych.
+2. **Mapowanie z `opakowania.numer_eu` w RPL**:
+   - Z kodów jednostek opakowań (np. `EU/1/97/046/004`) wyodrębniany jest prefiks autoryzacji bazowej `EU/1/97/046`.
+   - Skuteczność dopasowania: **100% (3 825 / 3 825 leków CEN)**.
+
+### 6.2 Przetwarzanie i Ekstrakcja ChPL
+1. **Wielowątkowe Pobieranie Aneksów PDF**:
+   - Pobieranie oficjalnych polskich aneksów decyzji (`anx_XXXXXX_pl.pdf`).
+   - Caching po unikalnym adresie URL decyzji.
+2. **Konwersja PyMuPDF (fitz) $\to$ Markdown**:
+   - Automatyczne wycinanie **Aneksu I (*Charakterystyka Produktu Leczniczego*)**.
+   - Normalizacja nagłówków (`# CHARAKTERYSTYKA PRODUKTU LECZNICZEGO`, `## 1. NAZWA...`, `### 4.1 Wskazania do stosowania`).
+3. **Kopia Zapasowa w S3 (`s3://plek/`)**:
+   - Zapis surowych PDF: `s3://plek/pdf_eu/{produkt_id}.pdf`
+   - Zapis sformatowanego Markdown: `s3://plek/md_eu/{produkt_id}.md`
+4. **Embeddingi Wektorowe & FTS5**:
+   - Generowanie wektorów 1024-d za pomocą `PolDense-400M` z oknem 4096 tokenów.
+   - Indeksowanie do tabeli `vec_dokumenty` oraz `fts_dokumenty` z tokenizacją Morfeusza.
+   - Zapis embeddingów binarnych do `s3://plek/embeddings/{produkt_id}.bin`.
+
