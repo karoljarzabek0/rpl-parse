@@ -30,7 +30,7 @@ from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn, TimeEl
 console = Console()
 
 DEFAULT_DB_PATH = "data/rpl.db"
-DEFAULT_ICD11_XML = "/home/karol/Pobrane/icd11_2026-01_pl_in.xml"
+DEFAULT_ICD11_XML = "data/icd_raw/icd11_2026-01_pl_in.xml" if os.path.exists("data/icd_raw/icd11_2026-01_pl_in.xml") else "/home/karol/Pobrane/icd11_2026-01_pl_in.xml"
 DEFAULT_ICD10_11_EXCEL = "data/icd_raw/10To11MapdowieluKategorii.xlsx"
 WIKIDATA_SPARQL_URL = "https://query.wikidata.org/sparql"
 HEADERS = {
@@ -139,49 +139,41 @@ def fetch_wikidata_icd_properties(all_qids: List[str]) -> Dict[str, Dict[str, Se
     chunk_size = 60
     chunks = [all_qids[i:i + chunk_size] for i in range(0, len(all_qids), chunk_size)]
     wikidata_props: Dict[str, Dict[str, Set[str]]] = {}
+    total_chunks = len(chunks)
+    print(f"Fetching ICD codes from Wikidata SPARQL for {len(all_qids)} conditions in {total_chunks} chunks...", flush=True)
 
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
-        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-        TimeElapsedColumn(),
-        console=console
-    ) as progress:
-        task = progress.add_task("[cyan]Fetching ICD codes from Wikidata SPARQL...", total=len(chunks))
-
-        for ch in chunks:
-            qid_str = " ".join(f"wd:{qid}" for qid in ch)
-            query = f"""
-            SELECT ?condition ?p ?val WHERE {{
-              VALUES ?condition {{ {qid_str} }}
-              VALUES ?p {{ wdt:P494 wdt:P4229 wdt:P7807 wdt:P7329 }}
-              ?condition ?p ?val .
-            }}
-            """
-            for attempt in range(3):
-                try:
-                    r = requests.get(WIKIDATA_SPARQL_URL, params={"query": query, "format": "json"}, headers=HEADERS, timeout=20)
-                    if r.status_code == 200:
-                        for row in r.json().get("results", {}).get("bindings", []):
-                            qid = row.get("condition", {}).get("value", "").split("/")[-1]
-                            prop = row.get("p", {}).get("value", "").split("/")[-1]
-                            val = row.get("val", {}).get("value", "").strip()
-                            if qid not in wikidata_props:
-                                wikidata_props[qid] = {"icd10": set(), "icd10cm": set(), "icd11fid": set(), "icd11mms": set()}
-                            if prop == "P494":
-                                wikidata_props[qid]["icd10"].add(val)
-                            elif prop == "P4229":
-                                wikidata_props[qid]["icd10cm"].add(val)
-                            elif prop == "P7807":
-                                wikidata_props[qid]["icd11fid"].add(val)
-                            elif prop == "P7329":
-                                wikidata_props[qid]["icd11mms"].add(val)
-                        break
-                except Exception as e:
-                    time.sleep(1.0 * (attempt + 1))
-            time.sleep(0.15)
-            progress.advance(task)
+    for idx, ch in enumerate(chunks):
+        qid_str = " ".join(f"wd:{qid}" for qid in ch)
+        query = f"""
+        SELECT ?condition ?p ?val WHERE {{
+          VALUES ?condition {{ {qid_str} }}
+          VALUES ?p {{ wdt:P494 wdt:P4229 wdt:P7807 wdt:P7329 }}
+          ?condition ?p ?val .
+        }}
+        """
+        for attempt in range(3):
+            try:
+                r = requests.get(WIKIDATA_SPARQL_URL, params={"query": query, "format": "json"}, headers=HEADERS, timeout=20)
+                if r.status_code == 200:
+                    for row in r.json().get("results", {}).get("bindings", []):
+                        qid = row.get("condition", {}).get("value", "").split("/")[-1]
+                        prop = row.get("p", {}).get("value", "").split("/")[-1]
+                        val = row.get("val", {}).get("value", "").strip()
+                        if qid not in wikidata_props:
+                            wikidata_props[qid] = {"icd10": set(), "icd10cm": set(), "icd11fid": set(), "icd11mms": set()}
+                        if prop == "P494":
+                            wikidata_props[qid]["icd10"].add(val)
+                        elif prop == "P4229":
+                            wikidata_props[qid]["icd10cm"].add(val)
+                        elif prop == "P7807":
+                            wikidata_props[qid]["icd11fid"].add(val)
+                        elif prop == "P7329":
+                            wikidata_props[qid]["icd11mms"].add(val)
+                    print(f"[ICD Fetch {idx+1:02d}/{total_chunks:02d}] Processed {len(ch)} conditions", flush=True)
+                    break
+            except Exception:
+                time.sleep(1.0 * (attempt + 1))
+        time.sleep(0.15)
 
     return wikidata_props
 

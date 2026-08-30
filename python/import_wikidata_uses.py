@@ -8,6 +8,7 @@ Pipeline mapping:
 
 import os
 import sys
+import time
 import sqlite3
 import argparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -27,9 +28,6 @@ HEADERS = {
 
 
 def init_wikidata_uses_tables(conn: sqlite3.Connection):
-    conn.execute("DROP TABLE IF EXISTS wikidata_substance_conditions;")
-    conn.execute("DROP TABLE IF EXISTS wikidata_conditions;")
-
     # Ensure base tables exist
     conn.execute("""
     CREATE TABLE IF NOT EXISTS wikidata_substances (
@@ -48,14 +46,19 @@ def init_wikidata_uses_tables(conn: sqlite3.Connection):
     """)
 
     conn.execute("""
-    CREATE TABLE wikidata_conditions (
+    CREATE TABLE IF NOT EXISTS wikidata_conditions (
         condition_wikidata_id TEXT PRIMARY KEY,
-        name TEXT NOT NULL
+        name TEXT NOT NULL,
+        official_pl_name TEXT,
+        icd11_mms TEXT,
+        icd11_foundation_id TEXT,
+        icd11_url TEXT,
+        icd10_codes TEXT
     );
     """)
 
     conn.execute("""
-    CREATE TABLE wikidata_substance_conditions (
+    CREATE TABLE IF NOT EXISTS wikidata_substance_conditions (
         substance_wikidata_id TEXT NOT NULL,
         condition_wikidata_id TEXT NOT NULL,
         use_type TEXT DEFAULT 'condition_treated',
@@ -66,9 +69,8 @@ def init_wikidata_uses_tables(conn: sqlite3.Connection):
     """)
 
     conn.execute("CREATE INDEX IF NOT EXISTS idx_w_atc ON wikidata_atc_substance(atc_code);")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_w_sub_atc ON wikidata_atc_substance(substance_wikidata_id);")
-    conn.execute("CREATE INDEX idx_w_sub_cond ON wikidata_substance_conditions(substance_wikidata_id);")
-    conn.execute("CREATE INDEX idx_w_cond ON wikidata_substance_conditions(condition_wikidata_id);")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_w_sub_cond ON wikidata_substance_conditions(substance_wikidata_id);")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_w_cond ON wikidata_substance_conditions(condition_wikidata_id);")
     conn.commit()
 
 
@@ -81,19 +83,27 @@ def extract_qid(url: str) -> str:
 def fetch_conditions_chunk(chunk_atc: list) -> list:
     atc_str = " ".join(f'"{code}"' for code in chunk_atc)
     query = f"""
-    SELECT ?substance ?substanceLabel ?atc ?condition ?conditionLabel WHERE {{
+    SELECT ?substance ?substanceLabel ?atc ?condition ?conditionLabel ?part ?partLabel WHERE {{
       VALUES ?atc {{ {atc_str} }}
-      ?substance wdt:P267 ?atc ;
-                 wdt:P2175 ?condition .
+      ?substance wdt:P267 ?atc .
+      {{
+        ?substance wdt:P2175 ?condition .
+      }}
+      UNION
+      {{
+        ?substance (wdt:P527|wdt:P3781) ?part .
+        ?part wdt:P2175 ?condition .
+      }}
       SERVICE wikibase:label {{ bd:serviceParam wikibase:language "pl,en". }}
     }}
     """
-    try:
-        r = requests.get(WIKIDATA_SPARQL_URL, params={"query": query, "format": "json"}, headers=HEADERS, timeout=30)
-        if r.status_code == 200:
-            return r.json().get("results", {}).get("bindings", [])
-    except Exception as e:
-        console.print(f"[yellow]Warning querying chunk: {e}[/yellow]")
+    for attempt in range(3):
+        try:
+            r = requests.get(WIKIDATA_SPARQL_URL, params={"query": query, "format": "json"}, headers=HEADERS, timeout=35)
+            if r.status_code == 200:
+                return r.json().get("results", {}).get("bindings", [])
+        except Exception as e:
+            time.sleep(1.0 * (attempt + 1))
     return []
 
 
@@ -108,27 +118,21 @@ def import_wikidata_uses(db_path: str):
     atc_codes = [r[0].strip().upper() for r in c.fetchall()]
     console.print(f"[cyan]Found {len(atc_codes)} unique ATC codes in RPL database.[/cyan]")
 
-    chunk_size = 80
+    chunk_size = 60
     chunks = [atc_codes[i:i + chunk_size] for i in range(0, len(atc_codes), chunk_size)]
+    total_chunks = len(chunks)
+    print(f"Fetching medical conditions (P2175) & combination parts (P527/P3781) for {len(atc_codes)} ATC codes in {total_chunks} chunks...", flush=True)
 
     all_raw_results = []
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
-        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-        TimeElapsedColumn(),
-        console=console
-    ) as progress:
-        task = progress.add_task("[cyan]Fetching medical conditions (P2175) from Wikidata...", total=len(chunks))
-        with ThreadPoolExecutor(max_workers=5) as executor:
-            future_to_chunk = {executor.submit(fetch_conditions_chunk, ch): ch for ch in chunks}
-            for future in as_completed(future_to_chunk):
-                res = future.result()
-                all_raw_results.extend(res)
-                progress.advance(task)
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        future_to_chunk = {executor.submit(fetch_conditions_chunk, ch): (i, ch) for i, ch in enumerate(chunks)}
+        for future in as_completed(future_to_chunk):
+            idx, ch = future_to_chunk[future]
+            res = future.result()
+            all_raw_results.extend(res)
+            print(f"[ATC Chunk {idx+1:02d}/{total_chunks:02d}] Retrieved {len(res)} condition bindings", flush=True)
 
-    console.print(f"[green]Retrieved {len(all_raw_results)} total condition-substance bindings.[/green]")
+    print(f"Retrieved {len(all_raw_results)} total condition-substance bindings.", flush=True)
 
     substances = {}
     atc_substance_links = set()
@@ -140,6 +144,10 @@ def import_wikidata_uses(db_path: str):
         sub_qid = extract_qid(sub_url)
         sub_label = item.get("substanceLabel", {}).get("value", sub_qid)
 
+        part_url = item.get("part", {}).get("value", "")
+        part_qid = extract_qid(part_url)
+        part_label = item.get("partLabel", {}).get("value", part_qid)
+
         cond_url = item.get("condition", {}).get("value", "")
         cond_qid = extract_qid(cond_url)
         cond_label = item.get("conditionLabel", {}).get("value", cond_qid)
@@ -148,12 +156,22 @@ def import_wikidata_uses(db_path: str):
 
         if sub_qid and sub_label:
             substances[sub_qid] = sub_label
-        if cond_qid and cond_label:
-            conditions[cond_qid] = cond_label
         if atc_code and sub_qid:
             atc_substance_links.add((atc_code, sub_qid))
-        if sub_qid and cond_qid:
-            substance_condition_links.add((sub_qid, cond_qid, "condition_treated"))
+
+        if part_qid and part_label:
+            substances[part_qid] = part_label
+            if atc_code:
+                atc_substance_links.add((atc_code, part_qid))
+
+        if cond_qid and cond_label:
+            conditions[cond_qid] = cond_label
+
+        target_sub_qid = part_qid if part_qid else sub_qid
+        if target_sub_qid and cond_qid:
+            substance_condition_links.add((target_sub_qid, cond_qid, "condition_treated"))
+            if sub_qid and sub_qid != target_sub_qid:
+                substance_condition_links.add((sub_qid, cond_qid, "condition_treated"))
 
     console.print(f"[cyan]Ingesting {len(substances)} substances, {len(conditions)} conditions, {len(atc_substance_links)} ATC links, and {len(substance_condition_links)} uses into database...[/cyan]")
 
@@ -166,7 +184,11 @@ def import_wikidata_uses(db_path: str):
             conn.execute("INSERT OR REPLACE INTO wikidata_atc_substance (atc_code, substance_wikidata_id) VALUES (?, ?)", (atc, qid))
 
         for qid, name in conditions.items():
-            conn.execute("INSERT OR REPLACE INTO wikidata_conditions (condition_wikidata_id, name) VALUES (?, ?)", (qid, name))
+            conn.execute("""
+            INSERT INTO wikidata_conditions (condition_wikidata_id, name) VALUES (?, ?)
+            ON CONFLICT(condition_wikidata_id) DO UPDATE SET
+                name = COALESCE(wikidata_conditions.name, excluded.name)
+            """, (qid, name))
 
         for sub_qid, cond_qid, use_type in substance_condition_links:
             conn.execute("INSERT OR REPLACE INTO wikidata_substance_conditions (substance_wikidata_id, condition_wikidata_id, use_type) VALUES (?, ?, ?)", (sub_qid, cond_qid, use_type))

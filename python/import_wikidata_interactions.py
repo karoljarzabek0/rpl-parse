@@ -20,19 +20,15 @@ WIKIDATA_SPARQL_URL = "https://query.wikidata.org/sparql"
 
 
 def init_wikidata_tables(conn: sqlite3.Connection):
-    conn.execute("DROP TABLE IF EXISTS wikidata_atc_substance;")
-    conn.execute("DROP TABLE IF EXISTS wikidata_interactions;")
-    conn.execute("DROP TABLE IF EXISTS wikidata_substances;")
-
     conn.execute("""
-    CREATE TABLE wikidata_substances (
+    CREATE TABLE IF NOT EXISTS wikidata_substances (
         wikidata_id TEXT PRIMARY KEY,
         name TEXT NOT NULL
     );
     """)
 
     conn.execute("""
-    CREATE TABLE wikidata_atc_substance (
+    CREATE TABLE IF NOT EXISTS wikidata_atc_substance (
         atc_code TEXT NOT NULL,
         substance_wikidata_id TEXT NOT NULL,
         PRIMARY KEY (atc_code, substance_wikidata_id),
@@ -41,7 +37,7 @@ def init_wikidata_tables(conn: sqlite3.Connection):
     """)
 
     conn.execute("""
-    CREATE TABLE wikidata_interactions (
+    CREATE TABLE IF NOT EXISTS wikidata_interactions (
         substance_wikidata_id TEXT NOT NULL,
         interacts_with_wikidata_id TEXT NOT NULL,
         PRIMARY KEY (substance_wikidata_id, interacts_with_wikidata_id),
@@ -50,10 +46,10 @@ def init_wikidata_tables(conn: sqlite3.Connection):
     );
     """)
 
-    conn.execute("CREATE INDEX idx_w_atc ON wikidata_atc_substance(atc_code);")
-    conn.execute("CREATE INDEX idx_w_sub_atc ON wikidata_atc_substance(substance_wikidata_id);")
-    conn.execute("CREATE INDEX idx_w_inter_1 ON wikidata_interactions(substance_wikidata_id);")
-    conn.execute("CREATE INDEX idx_w_inter_2 ON wikidata_interactions(interacts_with_wikidata_id);")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_w_atc ON wikidata_atc_substance(atc_code);")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_w_sub_atc ON wikidata_atc_substance(substance_wikidata_id);")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_w_inter_1 ON wikidata_interactions(substance_wikidata_id);")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_w_inter_2 ON wikidata_interactions(interacts_with_wikidata_id);")
     conn.commit()
 
 

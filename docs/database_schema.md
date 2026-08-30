@@ -18,8 +18,13 @@ erDiagram
     OPAKOWANIA ||--o{ DECYZJE_GIF : "ltrim(kod_gtin,'0') = kod_gtin_norm"
     
     KODY_ATC ||--o{ WIKIDATA_ATC_SUBSTANCE : "kod_atc = atc_code"
+    SUBSTANCJE_CZYNNE ||--o{ RPL_SUBSTANCE_WIKIDATA : "nazwa = nazwa_substancji"
+    
     WIKIDATA_SUBSTANCES ||--o{ WIKIDATA_ATC_SUBSTANCE : mapuje
+    WIKIDATA_SUBSTANCES ||--o{ RPL_SUBSTANCE_WIKIDATA : mapuje
     WIKIDATA_SUBSTANCES ||--o{ WIKIDATA_INTERACTIONS : interakcje
+    WIKIDATA_SUBSTANCES ||--o{ WIKIDATA_SUBSTANCE_CONDITIONS : leczy
+    WIKIDATA_CONDITIONS ||--o{ WIKIDATA_SUBSTANCE_CONDITIONS : zawiera
 
     PRODUKTY_LECZNICZE {
         int id PK
@@ -195,7 +200,28 @@ Oficjalny rejestr decyzji Głównego Inspektora Farmaceutycznego.
 - `link_decyzja` (TEXT): Bezpośredni URL do pliku PDF z uzasadnieniem GIF.
 
 #### `wikidata_substances`, `wikidata_atc_substance`, `wikidata_interactions`
-Ontologia interakcji lekowych z Wikidata.
+Ontologia substancji i interakcji lekowych z Wikidata.
 - `wikidata_substances (wikidata_id TEXT PRIMARY KEY, name TEXT NOT NULL)`
 - `wikidata_atc_substance (atc_code TEXT NOT NULL, substance_wikidata_id TEXT NOT NULL, PRIMARY KEY(atc_code, substance_wikidata_id))`
 - `wikidata_interactions (substance_wikidata_id TEXT NOT NULL, interacts_with_wikidata_id TEXT NOT NULL, PRIMARY KEY(substance_wikidata_id, interacts_with_wikidata_id))`
+
+#### `rpl_substance_wikidata`
+Bezpośrednie mapowanie nazw substancji czynnych z rejestru RPL (Ph. Eur. / FP) do encji Wikidata.
+- `nazwa_substancji` (TEXT PRIMARY KEY): Nazwa substancji w RPL (np. *Paracetamolum*, *Coffeinum*, *Ibuprofenum*).
+- `wikidata_id` (TEXT NOT NULL REFERENCES wikidata_substances(wikidata_id)): Identyfikator QID.
+- `substance_name` (TEXT): Kanoniczna polska/angielska nazwa substancji.
+
+#### `wikidata_conditions` & `wikidata_substance_conditions`
+Mapowanie jednostek chorobowych, wskazań medycznych oraz klasyfikacji **ICD-11** i **ICD-10**.
+- `wikidata_conditions`:
+  - `condition_wikidata_id` (TEXT PRIMARY KEY): Np. `Q12206` (*cukrzyca*), `Q81938` (*ból*).
+  - `name` (TEXT NOT NULL): Etykieta jednostki w Wikidata.
+  - `official_pl_name` (TEXT): Oficjalna nazwa medyczna ze słownika WHO / CeZ (np. *Cukrzyca typu 2*, *Pierwotna hipercholesterolemia*).
+  - `icd11_mms` (TEXT): Kod linearyzacji ICD-11 MMS (np. `5A11`, `MG3Z`, `BA6Z`).
+  - `icd11_foundation_id` (TEXT): Identyfikator Foundation URI WHO (np. `119724091`, `661232217`).
+  - `icd11_url` (TEXT): Bezpośredni URL do przeglądarki WHO (`https://icd.who.int/browse/2026-01/mms/en#{fid}`).
+  - `icd10_codes` (TEXT): Zgodne kody ICD-10 (np. `E11`, `R52.9`, `I20-I25`).
+- `wikidata_substance_conditions`:
+  - `substance_wikidata_id` (TEXT), `condition_wikidata_id` (TEXT), `use_type` (TEXT DEFAULT `'condition_treated'`).
+  - `PRIMARY KEY (substance_wikidata_id, condition_wikidata_id)`.
+

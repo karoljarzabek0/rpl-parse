@@ -234,18 +234,30 @@ def get_wikidata_interactions(conn: sqlite3.Connection, produkt_id: int) -> Dict
     c.execute("SELECT kod_atc FROM kody_atc WHERE produkt_id = ?", (produkt_id,))
     atc_rows = c.fetchall()
     atc_codes = [r["kod_atc"] for r in atc_rows if r["kod_atc"]]
-    if not atc_codes:
-        return {"source_substances": [], "interactions_count": 0, "interactions": []}
 
-    # 2. Map ATC -> Wikidata substances
-    placeholders = ",".join(["?"] * len(atc_codes))
-    c.execute(f"""
-        SELECT DISTINCT was.atc_code, ws.wikidata_id, ws.name
-        FROM wikidata_atc_substance was
-        JOIN wikidata_substances ws ON ws.wikidata_id = was.substance_wikidata_id
-        WHERE was.atc_code IN ({placeholders})
-    """, atc_codes)
-    source_substances = [dict(r) for r in c.fetchall()]
+    source_substances = []
+    if atc_codes:
+        placeholders = ",".join(["?"] * len(atc_codes))
+        c.execute(f"""
+            SELECT DISTINCT was.atc_code, ws.wikidata_id, ws.name
+            FROM wikidata_atc_substance was
+            JOIN wikidata_substances ws ON ws.wikidata_id = was.substance_wikidata_id
+            WHERE was.atc_code IN ({placeholders})
+        """, atc_codes)
+        source_substances.extend([dict(r) for r in c.fetchall()])
+
+    # Direct substance mapping from substancje_czynne
+    c.execute("""
+        SELECT DISTINCT '' as atc_code, rsw.wikidata_id, rsw.substance_name as name
+        FROM substancje_czynne sc
+        JOIN rpl_substance_wikidata rsw ON rsw.nazwa_substancji = sc.nazwa_substancji
+        WHERE sc.produkt_id = ?
+    """, (produkt_id,))
+    direct_subs = [dict(r) for r in c.fetchall()]
+    for ds in direct_subs:
+        if not any(s["wikidata_id"] == ds["wikidata_id"] for s in source_substances):
+            source_substances.append(ds)
+
     if not source_substances:
         return {"source_substances": [], "interactions_count": 0, "interactions": []}
 
@@ -271,18 +283,32 @@ def get_wikidata_interactions(conn: sqlite3.Connection, produkt_id: int) -> Dict
         c.execute("SELECT atc_code FROM wikidata_atc_substance WHERE substance_wikidata_id = ?", (iw_qid,))
         iw_atcs = [r["atc_code"] for r in c.fetchall()]
 
-        # 5. Find example drugs in RPL database that have this ATC code
+        # 5. Find example drugs in RPL database that have this ATC code or substance
         sample_drugs = []
         if iw_atcs:
             atc_ph = ",".join(["?"] * len(iw_atcs))
+            params = list(iw_atcs) + [iw_qid]
             c.execute(f"""
                 SELECT DISTINCT p.id, p.nazwa_produktu, p.moc
                 FROM produkty_lecznicze p
-                JOIN kody_atc a ON a.produkt_id = p.id
-                WHERE a.kod_atc IN ({atc_ph})
+                LEFT JOIN kody_atc a ON a.produkt_id = p.id
+                LEFT JOIN substancje_czynne sc ON sc.produkt_id = p.id
+                LEFT JOIN rpl_substance_wikidata rsw ON rsw.nazwa_substancji = sc.nazwa_substancji
+                WHERE a.kod_atc IN ({atc_ph}) OR rsw.wikidata_id = ?
                 ORDER BY p.nazwa_produktu ASC
                 LIMIT 4
-            """, iw_atcs)
+            """, params)
+            sample_drugs = [dict(d) for d in c.fetchall()]
+        else:
+            c.execute("""
+                SELECT DISTINCT p.id, p.nazwa_produktu, p.moc
+                FROM produkty_lecznicze p
+                JOIN substancje_czynne sc ON sc.produkt_id = p.id
+                JOIN rpl_substance_wikidata rsw ON rsw.nazwa_substancji = sc.nazwa_substancji
+                WHERE rsw.wikidata_id = ?
+                ORDER BY p.nazwa_produktu ASC
+                LIMIT 4
+            """, (iw_qid,))
             sample_drugs = [dict(d) for d in c.fetchall()]
 
         interactions_list.append({
@@ -304,17 +330,30 @@ def get_wikidata_uses(conn: sqlite3.Connection, produkt_id: int) -> Dict[str, An
     c.execute("SELECT kod_atc FROM kody_atc WHERE produkt_id = ?", (produkt_id,))
     atc_rows = c.fetchall()
     atc_codes = [r["kod_atc"] for r in atc_rows if r["kod_atc"]]
-    if not atc_codes:
-        return {"source_substances": [], "conditions_count": 0, "conditions": []}
 
-    placeholders = ",".join(["?"] * len(atc_codes))
-    c.execute(f"""
-        SELECT DISTINCT was.atc_code, ws.wikidata_id, ws.name
-        FROM wikidata_atc_substance was
-        JOIN wikidata_substances ws ON ws.wikidata_id = was.substance_wikidata_id
-        WHERE was.atc_code IN ({placeholders})
-    """, atc_codes)
-    substances = [dict(r) for r in c.fetchall()]
+    substances = []
+    if atc_codes:
+        placeholders = ",".join(["?"] * len(atc_codes))
+        c.execute(f"""
+            SELECT DISTINCT was.atc_code, ws.wikidata_id, ws.name
+            FROM wikidata_atc_substance was
+            JOIN wikidata_substances ws ON ws.wikidata_id = was.substance_wikidata_id
+            WHERE was.atc_code IN ({placeholders})
+        """, atc_codes)
+        substances.extend([dict(r) for r in c.fetchall()])
+
+    # Direct substance mapping from substancje_czynne
+    c.execute("""
+        SELECT DISTINCT '' as atc_code, rsw.wikidata_id, rsw.substance_name as name
+        FROM substancje_czynne sc
+        JOIN rpl_substance_wikidata rsw ON rsw.nazwa_substancji = sc.nazwa_substancji
+        WHERE sc.produkt_id = ?
+    """, (produkt_id,))
+    direct_subs = [dict(r) for r in c.fetchall()]
+    for ds in direct_subs:
+        if not any(s["wikidata_id"] == ds["wikidata_id"] for s in substances):
+            substances.append(ds)
+
     if not substances:
         return {"source_substances": [], "conditions_count": 0, "conditions": []}
 

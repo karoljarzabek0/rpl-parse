@@ -84,7 +84,7 @@ Skrypt `python/import_decyzje_gif.py` pobiera oficjalne decyzje Głównego Inspe
 
 ---
 
-## 5. Rurociąg Interakcji Lekowych: Wikidata SPARQL (`import_wikidata_interactions.py`)
+### 5. Rurociąg Interakcji Lekowych: Wikidata SPARQL (`import_wikidata_interactions.py`)
 
 Interakcje farmakologiczne są pobierane ze społecznościowej ontologii wiedzy **Wikidata** (Wikiprojekt Lekoznawstwo).
 
@@ -98,11 +98,12 @@ SELECT ?substance ?substanceLabel ?substanceAtc ?interactsWith ?interactsWithLab
 }
 ```
 
-### 5.2 Algorytm Mapowania (Pipeline)
-1. **Identyfikacja leku źródłowego**: Odczytanie kodu ATC danego produktu leczniczego w RPL (np. `B01AC06` dla kwasu acetylosalicylowego).
-2. **Mapowanie do Wikidata**: Wyszukanie encji substancji czynnej po kodzie ATC (`wdt:P267`) $\to$ `Q18216` (kwas acetylosalicylowy).
-3. **Pobranie interakcji (`wdt:P769`)**: Wyszukanie wszystkich substancji, z którymi dana substancja wchodzi w interakcję (relacja symetryczna).
-4. **Rozwinięcie do kodów ATC i preparatów RPL**: Dla każdej wchodzącej w interakcję substancji pobierane są jej kody ATC, a następnie wyszukiwane są przykładowe zarejestrowane w Polsce leki zawierające ten kod ATC.
+### 5.2 Algorytm Mapowania Dwuścieżkowego (Dual-Track Interaction Discovery)
+W celu zapewnienia pełnego pokrycia interakcji zarówno dla leków jednoskładnikowych, jak i złożonych produktów wielolekowych:
+1. **Ścieżka A (Kody ATC)**: Odczytanie kodu ATC danego produktu leczniczego w RPL (np. `B01AC06` dla kwasu acetylosalicylowego) i dopasowanie do encji Wikidata (`wdt:P267`) $\to$ `Q18216`.
+2. **Ścieżka B (Dekompozycja składników czynnych `substancje_czynne`)**: Dla leków złożonych o zbiorczych kodach ATC (np. `N02BE51`, `J05AR01`), zapytanie odnajduje encje Wikidata dla poszczególnych substancji (`rpl_substance_wikidata`) i łączy ich interakcje.
+3. **Pobranie interakcji (`wdt:P769`)**: Wyszukanie wszystkich substancji wchodzących w interakcję z dowolnym ze składników preparatu.
+4. **Wielotorowe wyszukiwanie leków przykładowych**: Dla każdej wchodzącej w interakcję substancji system odnajduje zarejestrowane w Polsce leki referencyjne na podstawie kodów ATC oraz nazw znormalizowanych substancji czynnych (`sc.nazwa_substancji`).
 
 ---
 
@@ -135,34 +136,121 @@ Leki rejestrowane w procedurze centralnej (**CEN**) nie posiadają krajowych lin
 
 ---
 
-## 7. Rurociąg Wskazań Medycznych & Mapowania ICD-11 / ICD-10 (`import_icd_mapping.py`)
+## 7. Rurociąg Wskazań Medycznych & Mapowania ICD-11 / ICD-10 (`import_icd_mapping.py` + `import_rpl_substances_wikidata.py`)
 
 Umożliwia automatyczne przypisywanie jednostek chorobowych, kodów **ICD-11 MMS**, **ICD-11 Foundation ID** oraz **ICD-10** wraz z oficjalnymi polskimi nazwami do poszczególnych leków zarejestrowanych w RPL.
 
 ```mermaid
-flowchart LR
-    A["Lek RPL (kod ATC)"] --> B["Wikidata Substancja (wdt:P267)"]
-    B --> C["Leczone Stany / Wskazania (wdt:P2175)"]
-    C --> D["Wikidata ICD Properties (P7807, P7329, P494, P4229)"]
-    D --> E["Oficjalny Polski XML ICD-11 (WHO/CeZ)"]
-    D --> F["Tabela Przejścia ICD-10 ↔ ICD-11"]
-    E --> G["Wzbogacona Tabela wikidata_conditions w rpl.db"]
-    F --> G
-    G --> H["Widok Karty Leku (/lek/{id}) & Wyszukiwarka"]
+flowchart TD
+    subgraph S1["Źródła Wejściowe RPL"]
+        A1["Kody ATC (kody_atc)"]
+        A2["Substancje Czynne (substancje_czynne)"]
+    end
+
+    subgraph S2["Rurociąg Normalizacji & Wikidata"]
+        B1["Pobieranie Wskazań po ATC (wdt:P2175)"]
+        B2["Dekompozycja Leków Złożonych (wdt:P527/P3781)"]
+        B3["Normalizator Farmakopealny & Izolacja Czystych Encji (Pharma Scoring)"]
+    end
+
+    subgraph S3["Rurociąg Mapowania ICD-11 & ICD-10"]
+        C1["Wikidata ICD Properties (P7807, P7329, P494, P4229)"]
+        C2["Oficjalny Słownik ICD-11 XML (WHO / CeZ)"]
+        C3["Tabela Przejścia ICD-10 ↔ ICD-11 (Excel)"]
+    end
+
+    subgraph S4["Zintegrowana Baza Danych"]
+        D1["rpl_substance_wikidata (1 876 substancji)"]
+        D2["wikidata_conditions (1 049 jednostek, 911 z ICD-11/10)"]
+        D3["wikidata_substance_conditions (3 675 powiązań)"]
+    end
+
+    A1 --> B1
+    A1 --> B2
+    A2 --> B3
+    B1 & B2 & B3 --> C1
+    C1 --> C2 & C3
+    C2 & C3 --> D1 & D2 & D3
 ```
 
 ### 7.1 Wykorzystane Źródła Danych
 1. **Oficjalny Polski Słownik ICD-11 (WHO / CeZ)**:
-   - Plik: `icd11_2026-01_pl_in.xml` (37 212 encji)
-   - Zawiera pełną strukturę drzewiastą, kody MMS, identyfikatory Foundation ID oraz oficjalne tłumaczenia jednostek chorobowych na język polski.
+   - Plik: `icd11_2026-01_pl_in.xml` (37 212 encji).
+   - Pełna hierarchia drzewiasta, kody MMS, identyfikatory Foundation ID oraz oficjalne tłumaczenia jednostek chorobowych na język polski.
 2. **Oficjalna Tabela Przejścia ICD-10 $\leftrightarrow$ ICD-11**:
-   - Plik: `10To11MapdowieluKategorii.xlsx` (15 556 reguł)
-   - Umożliwia translację pomiędzy kodami ICD-10 a kodami i identyfikatorami Foundation ICD-11 oraz mapowanie zwrotne.
+   - Plik: `10To11MapdowieluKategorii.xlsx` (15 556 reguł).
+   - Dwukierunkowa translacja pomiędzy kodami ICD-10 a kodami MMS i identyfikatorami Foundation ID.
 3. **Wikidata SPARQL Knowledge Graph**:
-   - Właściwości: `wdt:P2175` (*medical condition treated*), `wdt:P7807` (*ICD-11 Foundation ID*), `wdt:P7329` (*ICD-11 MMS code*), `wdt:P494` / `wdt:P4229` (*ICD-10 / ICD-10-CM*).
+   - Wskazania lecznicze: `wdt:P2175` (*medical condition treated*).
+   - Właściwości ICD: `wdt:P7807` (*ICD-11 Foundation ID*), `wdt:P7329` (*ICD-11 MMS code*), `wdt:P494` / `wdt:P4229` (*ICD-10 / ICD-10-CM*).
 
-### 7.2 Schemat Wielopoziomowego Rozpoznawania (Multi-Layer Resolution)
-1. **Poziom 1 (Foundation ID $\to$ ICD-11 XML)**: Dopasowanie po unikalnym ID encji WHO (`icd11_foundation_id`) pobiera kanoniczną polską nazwę medyczną oraz kod MMS.
-2. **Poziom 2 (MMS Code $\to$ ICD-11 XML)**: Wyszukanie po kodzie linearyzacji MMS.
-3. **Poziom 3 (Translacja ICD-10 $\to$ ICD-11)**: Gdy encja posiada jedynie kod ICD-10, następuje automatyczne przetłumaczenie na ICD-11 MMS oraz Foundation URI za pomocą tabeli przejścia.
-4. **Poziom 4 (Mapowanie Zwrotne ICD-11 $\to$ ICD-10)**: Uzupełnienie brakujących kodów ICD-10 na podstawie powiązanych identyfikatorów ICD-11.
+---
+
+### 7.2 Algorytm Izolacji Czystych Substancji i Uszczelnienia Dopasowania
+
+W procesie mapowania substancji farmakopealnych z RPL (`substancje_czynne`) do bazy Wikidata wdrożono rygorystyczny algorytm zapobiegający trzem typowym błędom ontologicznym:
+
+#### 1. Wykluczenie Przechwytywania przez Leki Złożone (*Combination Drug Hijacking*)
+* **Problem**: Encje leków złożonych (np. `amlodipine / perindopril`, `lamivudine / raltegravir`, `budesonide / salmeterol`) mają etykiety rozpoczynające się od nazwy pojedynczej substancji. Naiwne dopasowywanie prefiksowe powodowało, że lek jednoskładnikowy (np. czysta amlodypina) był błędnie mapowany do encji leku dwuskładnikowego.
+* **Rozwiązanie**:
+  * Zapytania SPARQL bezwzględnie wykluczają leki złożone: `FILTER NOT EXISTS { ?substance wdt:P31 wd:Q1779868 }`.
+  * Filtrowanie w kodzie Pythona odrzuca etykiety zawierające separatory połączeń (`/`, `+`, `&`, ` and `, ` with `, ` w połączeniu`).
+
+#### 2. Weryfikacja Farmakologiczna (*Pharma Property Scoring*)
+* **Problem**: Rdzenie substancji mogą przypadkowo odpowiadać zwykłym słowom w innych językach lub toponimom (np. *kopalnia* / *mina* dla `99m Tc Nadtechncjan sodu`).
+* **Rozwiązanie**: Każda kandydacka encja z Wikidata musi posiadać co najmniej jeden zweryfikowany atrybut chemiczno-farmakologiczny:
+  $$\text{Score} = 3 \cdot [\text{P267 (ATC)}] + 3 \cdot [\text{P2175 (Wskazanie)}] + 2 \cdot [\text{P662 (PubChem)}] + 2 \cdot [\text{P769 (Interakcja)}] + 1 \cdot [\text{P231 (CAS)}]$$
+  Encje o $\text{Score} = 0$ są bezwzględnie odrzucane.
+
+#### 3. Normalizator Farmakopealny & Odmiany Soli (1-to-Many Mapping)
+* **Problem**: W rejestrze RPL substancje występują w postaci łacińskiej z oznaczeniem soli/hydratu (np. `Amlodipini besilas`, `Amlodipini maleas`, `Atorvastatinum calcicum trihydricum`).
+* **Rozwiązanie**:
+  * Wycinanie ponad 40 form soli i hydratów za pomocą wyrażeń regularnych (`hydrochloridum`, `besilas`, `maleas`, `mesilas`, `tartras`, `monohydricum`, `calcicum` itd.).
+  * Generowanie wariantów INN (angielskie *-e*, *-ine*), polskich fonetycznych ($v \to w$, interwokaliczne $s \to z$, końcówki *-a*, *-ina*, *-yna*) oraz rdzeni łacińskich.
+  * Relacja **1-do-wielu**: Każdy wygenerowany rdzeń mapuje jednocześnie na wszystkie zarejestrowane w RPL warianty soli danej substancji, eliminując nadpisywanie w słownikach.
+
+---
+
+### 7.3 Wielopoziomowe Rozpoznawanie Kodów ICD-11 & ICD-10 (Multi-Layer Resolution)
+
+Po pobraniu identyfikatorów rozpoznań z Wikidata (`wdt:P2175`), skrypt `import_icd_mapping.py` przeprowadza kaskadowe dopasowanie kodów:
+
+```
+[Wskazanie z Wikidata (QID)]
+          │
+          ├──> 1. Foundation ID (P7807) ──> Oficjalny XML ICD-11 ──> Oficjalna nazwa PL + Kod MMS
+          │
+          ├──> 2. Kod MMS (P7329)       ──> Oficjalny XML ICD-11 ──> Oficjalna nazwa PL + Foundation ID
+          │
+          ├──> 3. Kod ICD-10 (P494)     ──> Tabela Przejścia 10→11 ──> Kod MMS + Foundation ID + Nazwa PL
+          │
+          └──> 4. Mapowanie Zwrotne 11→10 ─────────────────────────> Uzupełnienie brakujących kodów ICD-10
+```
+
+---
+
+### 7.4 Instrukcja Reprodukcji (End-to-End Execution)
+
+Wszystkie niezbędne pliki źródłowe znajdują się w katalogu `data/icd_raw/`:
+- `data/icd_raw/icd11_2026-01_pl_in.xml` (Oficjalny polski słownik ICD-11 WHO / CeZ)
+- `data/icd_raw/10To11MapdowieluKategorii.xlsx` (Tabela przejścia ICD-10 ↔ ICD-11)
+
+#### Uruchomienie Pełnego Rurociągu (1 polecenie):
+```bash
+./scripts/run_icd_pipeline.sh
+# lub bezpośrednio przez interpreter Pythona:
+python/.venv/bin/python python/run_full_icd_pipeline.py
+```
+
+#### Uruchomienie Krok po Kroku:
+```bash
+# Krok 1: Pobranie wskazań z Wikidata po kodach ATC i składowych leków złożonych
+python/.venv/bin/python python/import_wikidata_uses.py
+
+# Krok 2: Zaawansowane mapowanie substancji czynnych (substancje_czynne -> Wikidata z Pharma Scoring)
+python/.venv/bin/python python/import_rpl_substances_wikidata.py
+
+# Krok 3: Rozwiązanie ICD-11 MMS, Foundation ID, kodów ICD-10 i oficjalnych polskich nazw medycznych
+python/.venv/bin/python python/import_icd_mapping.py
+```
+
