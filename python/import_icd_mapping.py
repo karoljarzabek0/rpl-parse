@@ -62,7 +62,7 @@ def load_icd11_xml(xml_path: str):
                 icd11_by_fid[fid] = {
                     "code": code,
                     "title": title,
-                    "url": b_url or f"https://icd.who.int/browse/2026-01/mms/pl#{fid}",
+                    "url": (b_url.replace("/mms/pl", "/mms/en") if b_url else f"https://icd.who.int/browse/2026-01/mms/en#{fid}"),
                     "fid": fid
                 }
         if code:
@@ -70,7 +70,7 @@ def load_icd11_xml(xml_path: str):
                 icd11_by_code[code] = {
                     "code": code,
                     "title": title,
-                    "url": b_url or (f"https://icd.who.int/browse/2026-01/mms/pl#{m.group(1)}" if m else ""),
+                    "url": (b_url.replace("/mms/pl", "/mms/en") if b_url else (f"https://icd.who.int/browse/2026-01/mms/en#{m.group(1)}" if m else "")),
                     "fid": m.group(1) if m else ""
                 }
 
@@ -219,7 +219,7 @@ def map_and_save_conditions(
                     official_pl_name = node["title"]
                 icd11_code_final = node.get("code") or icd11_code_final
                 icd11_fid_final = fid
-                icd11_url_final = node.get("url", f"https://icd.who.int/browse/2026-01/mms/pl#{fid}")
+                icd11_url_final = node.get("url", f"https://icd.who.int/browse/2026-01/mms/en#{fid}")
                 break
 
         # Priority 2: Match via MMS Code in Polish XML
@@ -231,7 +231,7 @@ def map_and_save_conditions(
                         official_pl_name = node["title"]
                     icd11_code_final = code
                     icd11_fid_final = node.get("fid") or icd11_fid_final
-                    icd11_url_final = node.get("url", f"https://icd.who.int/browse/2026-01/mms/pl#{icd11_fid_final}" if icd11_fid_final else "")
+                    icd11_url_final = node.get("url", f"https://icd.who.int/browse/2026-01/mms/en#{icd11_fid_final}" if icd11_fid_final else "")
                     break
 
         # Priority 3: Translate ICD-10 -> ICD-11 via 10To11 mapping table
@@ -246,7 +246,7 @@ def map_and_save_conditions(
                         if m.get("title11") and not official_pl_name:
                             official_pl_name = m["title11"]
                         if icd11_fid_final and not icd11_url_final:
-                            icd11_url_final = f"https://icd.who.int/browse/2026-01/mms/pl#{icd11_fid_final}"
+                            icd11_url_final = f"https://icd.who.int/browse/2026-01/mms/en#{icd11_fid_final}"
                         break
                 if icd11_code_final:
                     break

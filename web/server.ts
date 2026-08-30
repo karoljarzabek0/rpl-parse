@@ -422,7 +422,7 @@ function renderMedicinePage(med: any): string {
                       <div class="use-tag-codes">
                         ${
                           c.icd11_mms || c.icd11_foundation_id
-                            ? `<a href="${escapeHtml(c.icd11_url || ('https://icd.who.int/browse/2026-01/mms/pl#' + (c.icd11_foundation_id || '')))}" target="_blank" rel="noopener noreferrer" class="icd-badge icd11-badge" title="ICD-11 (MMS: ${escapeHtml(c.icd11_mms || 'brak')}, Foundation ID: ${escapeHtml(c.icd11_foundation_id || 'brak')})">
+                            ? `<a href="${escapeHtml(c.icd11_url || ('https://icd.who.int/browse/2026-01/mms/en#' + (c.icd11_foundation_id || '')))}" target="_blank" rel="noopener noreferrer" class="icd-badge icd11-badge" title="ICD-11 (MMS: ${escapeHtml(c.icd11_mms || 'brak')}, Foundation ID: ${escapeHtml(c.icd11_foundation_id || 'brak')})">
                                 <span class="icd-type">ICD-11</span>
                                 <span class="icd-code">${escapeHtml(c.icd11_mms || c.icd11_foundation_id)}</span>
                                 <span class="icd-ext-icon">↗</span>
