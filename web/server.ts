@@ -42,10 +42,10 @@ function renderGlobalHeader(options: { isHome?: boolean } = {}): string {
   return `
   <header class="global-site-header">
     <div class="header-inner">
-      <a href="/" onclick="handleBack(event)" class="brand-link" title="Strona główna wyszukiwarki RPL">
-        <img src="/svg/chpl.svg" alt="RPL Logo" class="brand-logo" width="24" height="24" />
-        <span class="brand-title">Rejestr Produktów Leczniczych</span>
-        <span class="brand-badge">RRF Search</span>
+      <a href="/" onclick="handleBack(event)" class="brand-link" title="Strona główna powlekane.pl">
+        <img src="/svg/chpl.svg" alt="powlekane.pl Logo" class="brand-logo" width="24" height="24" />
+        <span class="brand-title">powlekane<span class="brand-tld">.pl</span></span>
+        <span class="brand-badge">Wyszukiwarka</span>
       </a>
       <nav class="header-nav">
         ${
@@ -117,7 +117,7 @@ function renderMedicinePage(med: any): string {
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <link rel="icon" type="image/svg+xml" href="/svg/chpl.svg" />
-  <title>${escapeHtml(med.nazwa_produktu)} — RPL</title>
+  <title>${escapeHtml(med.nazwa_produktu)} — powlekane.pl</title>
   <link rel="stylesheet" href="/style.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -571,7 +571,7 @@ function renderSubstancePage(sub: any): string {
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <link rel="icon" type="image/svg+xml" href="/svg/chpl.svg" />
-  <title>${escapeHtml(sub.nazwa_substancji)} — Substancja Czynna — RPL</title>
+  <title>${escapeHtml(sub.nazwa_substancji)} — Substancja Czynna — powlekane.pl</title>
   <link rel="stylesheet" href="/style.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -915,7 +915,7 @@ const server = Bun.serve({
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <link rel="icon" type="image/svg+xml" href="/svg/chpl.svg" />
-  <title>Nie znaleziono leku — RPL</title>
+  <title>Nie znaleziono leku — powlekane.pl</title>
   <link rel="stylesheet" href="/style.css" />
   <script>
     function handleBack(e) {
@@ -929,7 +929,7 @@ const server = Bun.serve({
   ${renderGlobalHeader({ isHome: false })}
   <div class="single-medicine-main" style="text-align: center; padding: 2.5rem 1rem;">
     <h1>Lek #${escapeHtml(produktId)} nie został znaleziony</h1>
-    <p style="color: var(--text-gray); margin: 1rem 0 2rem;">Podany identyfikator produktu leczniczego nie istnieje w bazie RPL.</p>
+    <p style="color: var(--text-gray); margin: 1rem 0 2rem;">Podany identyfikator produktu leczniczego nie istnieje w bazie leków.</p>
     <p><a href="/" onclick="handleBack(event)" class="nav-search-btn" style="display: inline-flex;">← Wróć do wyszukiwarki</a></p>
   </div>
 </body>
@@ -950,7 +950,7 @@ const server = Bun.serve({
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <link rel="icon" type="image/svg+xml" href="/svg/chpl.svg" />
-  <title>Błąd serwera — RPL</title>
+  <title>Błąd serwera — powlekane.pl</title>
   <link rel="stylesheet" href="/style.css" />
   <script>
     function handleBack(e) {
@@ -988,7 +988,7 @@ const server = Bun.serve({
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <link rel="icon" type="image/svg+xml" href="/svg/chpl.svg" />
-  <title>Nie znaleziono substancji — RPL</title>
+  <title>Nie znaleziono substancji — powlekane.pl</title>
   <link rel="stylesheet" href="/style.css" />
   <script>
     function handleBack(e) {
@@ -1023,7 +1023,7 @@ const server = Bun.serve({
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <link rel="icon" type="image/svg+xml" href="/svg/chpl.svg" />
-  <title>Błąd serwera — RPL</title>
+  <title>Błąd serwera — powlekane.pl</title>
   <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
@@ -1120,6 +1120,6 @@ const server = Bun.serve({
   },
 });
 
-console.log(`🌐 RPL Web App running on http://0.0.0.0:${server.port} (Local: http://localhost:${server.port})`);
+console.log(`🌐 powlekane.pl Web App running on http://0.0.0.0:${server.port} (Local: http://localhost:${server.port})`);
 console.log(`🔗 Connected to API Backend: ${API_BACKEND}`);
 console.log(`⚡ Markdown engine: Bun ${Bun.version} native Rust parser`);
