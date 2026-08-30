@@ -322,25 +322,38 @@ def get_wikidata_uses(conn: sqlite3.Connection, produkt_id: int) -> Dict[str, An
     sub_placeholders = ",".join(["?"] * len(sub_qids))
 
     c.execute(f"""
-        SELECT DISTINCT wc.condition_wikidata_id, wc.name, ws.name as substance_name
+        SELECT DISTINCT 
+            wc.condition_wikidata_id,
+            COALESCE(NULLIF(wc.official_pl_name, ''), wc.name) as name,
+            wc.name as wikidata_name,
+            wc.icd11_mms,
+            wc.icd11_foundation_id,
+            wc.icd11_url,
+            wc.icd10_codes,
+            ws.name as substance_name
         FROM wikidata_substance_conditions wsc
         JOIN wikidata_conditions wc ON wc.condition_wikidata_id = wsc.condition_wikidata_id
         JOIN wikidata_substances ws ON ws.wikidata_id = wsc.substance_wikidata_id
         WHERE wsc.substance_wikidata_id IN ({sub_placeholders})
-        ORDER BY wc.name ASC
+        ORDER BY name ASC
     """, sub_qids)
 
     rows = c.fetchall()
     conditions = []
     seen = set()
     for r in rows:
-        c_name = r["name"]
-        if c_name not in seen:
-            seen.add(c_name)
+        cid = r["condition_wikidata_id"]
+        if cid not in seen:
+            seen.add(cid)
             conditions.append({
-                "name": c_name,
-                "wikidata_id": r["condition_wikidata_id"],
-                "substance": r["substance_name"]
+                "name": r["name"],
+                "wikidata_name": r["wikidata_name"],
+                "wikidata_id": cid,
+                "substance": r["substance_name"],
+                "icd11_mms": r["icd11_mms"] or "",
+                "icd11_foundation_id": r["icd11_foundation_id"] or "",
+                "icd11_url": r["icd11_url"] or "",
+                "icd10_codes": r["icd10_codes"] or ""
             })
 
     return {

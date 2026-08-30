@@ -414,9 +414,34 @@ function renderMedicinePage(med: any): string {
                 ${med.zastosowanie_wikidata.conditions
                   .map((c: any) => `
                     <div class="use-tag-item">
-                      <span class="use-tag-icon">🩺</span>
-                      <span class="use-tag-name">${escapeHtml(c.name)}</span>
-                      ${c.substance ? `<span class="use-tag-sub">(${escapeHtml(c.substance)})</span>` : ""}
+                      <div class="use-tag-main">
+                        <span class="use-tag-icon">🩺</span>
+                        <span class="use-tag-name">${escapeHtml(c.name)}</span>
+                        ${c.substance ? `<span class="use-tag-sub">(${escapeHtml(c.substance)})</span>` : ""}
+                      </div>
+                      <div class="use-tag-codes">
+                        ${
+                          c.icd11_mms || c.icd11_foundation_id
+                            ? `<a href="${escapeHtml(c.icd11_url || ('https://icd.who.int/browse/2026-01/mms/pl#' + (c.icd11_foundation_id || '')))}" target="_blank" rel="noopener noreferrer" class="icd-badge icd11-badge" title="ICD-11 (MMS: ${escapeHtml(c.icd11_mms || 'brak')}, Foundation ID: ${escapeHtml(c.icd11_foundation_id || 'brak')})">
+                                <span class="icd-type">ICD-11</span>
+                                <span class="icd-code">${escapeHtml(c.icd11_mms || c.icd11_foundation_id)}</span>
+                                <span class="icd-ext-icon">↗</span>
+                              </a>`
+                            : ""
+                        }
+                        ${
+                          c.icd10_codes
+                            ? `<span class="icd-badge icd10-badge" title="ICD-10">
+                                <span class="icd-type">ICD-10</span>
+                                <span class="icd-code">${escapeHtml(c.icd10_codes)}</span>
+                              </span>`
+                            : ""
+                        }
+                        <a href="https://www.wikidata.org/wiki/${escapeHtml(c.wikidata_id)}" target="_blank" rel="noopener noreferrer" class="icd-badge qid-badge" title="Encja Wikidata: ${escapeHtml(c.wikidata_name || c.name)}">
+                          <span class="icd-type">WD</span>
+                          <span class="icd-code">${escapeHtml(c.wikidata_id)}</span>
+                        </a>
+                      </div>
                     </div>
                   `)
                   .join("")}

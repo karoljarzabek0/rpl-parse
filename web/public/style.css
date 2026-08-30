@@ -1269,32 +1269,40 @@ tbody tr:nth-child(even) {
 .uses-tags-cloud {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.45rem;
+  gap: 0.6rem;
   margin-top: 0.75rem;
 }
 
 .use-tag-item {
   display: inline-flex;
   align-items: center;
-  gap: 0.35rem;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.5rem;
   background: #ffffff;
   border: 1px solid #cbd5e1;
-  border-radius: 9999px;
-  padding: 0.3rem 0.75rem;
-  font-size: 0.8rem;
+  border-radius: 8px;
+  padding: 0.45rem 0.75rem;
+  font-size: 0.825rem;
   color: #1e293b;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
   transition: all 0.15s ease;
 }
 
 .use-tag-item:hover {
   background: #f8fafc;
-  border-color: var(--primary);
-  transform: translateY(-1px);
+  border-color: #94a3b8;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.06);
+}
+
+.use-tag-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
 }
 
 .use-tag-icon {
-  font-size: 0.85rem;
+  font-size: 0.9rem;
 }
 
 .use-tag-name {
@@ -1303,7 +1311,75 @@ tbody tr:nth-child(even) {
 }
 
 .use-tag-sub {
-  font-size: 0.7rem;
+  font-size: 0.725rem;
   color: #64748b;
-  font-style: italic;
+}
+
+.use-tag-codes {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.icd-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.15rem 0.45rem;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-weight: 600;
+  text-decoration: none;
+  line-height: 1.2;
+}
+
+.icd11-badge {
+  background: #eff6ff;
+  color: #1d4ed8;
+  border: 1px solid #bfdbfe;
+  transition: all 0.15s ease;
+}
+
+.icd11-badge:hover {
+  background: #dbeafe;
+  color: #1e40af;
+  border-color: #93c5fd;
+  text-decoration: none;
+}
+
+.icd10-badge {
+  background: #fffbeb;
+  color: #b45309;
+  border: 1px solid #fde68a;
+}
+
+.qid-badge {
+  background: #f8fafc;
+  color: #475569;
+  border: 1px solid #e2e8f0;
+  transition: all 0.15s ease;
+}
+
+.qid-badge:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+  border-color: #cbd5e1;
+  text-decoration: none;
+}
+
+.icd-type {
+  font-size: 0.65rem;
+  opacity: 0.8;
+  text-transform: uppercase;
+}
+
+.icd-code {
+  font-weight: 700;
+}
+
+.icd-ext-icon {
+  font-size: 0.65rem;
+  opacity: 0.7;
 }

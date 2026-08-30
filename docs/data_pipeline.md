@@ -133,3 +133,36 @@ Leki rejestrowane w procedurze centralnej (**CEN**) nie posiadają krajowych lin
    - Indeksowanie do tabeli `vec_dokumenty` oraz `fts_dokumenty` z tokenizacją Morfeusza.
    - Zapis embeddingów binarnych do `s3://plek/embeddings/{produkt_id}.bin`.
 
+---
+
+## 7. Rurociąg Wskazań Medycznych & Mapowania ICD-11 / ICD-10 (`import_icd_mapping.py`)
+
+Umożliwia automatyczne przypisywanie jednostek chorobowych, kodów **ICD-11 MMS**, **ICD-11 Foundation ID** oraz **ICD-10** wraz z oficjalnymi polskimi nazwami do poszczególnych leków zarejestrowanych w RPL.
+
+```mermaid
+flowchart LR
+    A["Lek RPL (kod ATC)"] --> B["Wikidata Substancja (wdt:P267)"]
+    B --> C["Leczone Stany / Wskazania (wdt:P2175)"]
+    C --> D["Wikidata ICD Properties (P7807, P7329, P494, P4229)"]
+    D --> E["Oficjalny Polski XML ICD-11 (WHO/CeZ)"]
+    D --> F["Tabela Przejścia ICD-10 ↔ ICD-11"]
+    E --> G["Wzbogacona Tabela wikidata_conditions w rpl.db"]
+    F --> G
+    G --> H["Widok Karty Leku (/lek/{id}) & Wyszukiwarka"]
+```
+
+### 7.1 Wykorzystane Źródła Danych
+1. **Oficjalny Polski Słownik ICD-11 (WHO / CeZ)**:
+   - Plik: `icd11_2026-01_pl_in.xml` (37 212 encji)
+   - Zawiera pełną strukturę drzewiastą, kody MMS, identyfikatory Foundation ID oraz oficjalne tłumaczenia jednostek chorobowych na język polski.
+2. **Oficjalna Tabela Przejścia ICD-10 $\leftrightarrow$ ICD-11**:
+   - Plik: `10To11MapdowieluKategorii.xlsx` (15 556 reguł)
+   - Umożliwia translację pomiędzy kodami ICD-10 a kodami i identyfikatorami Foundation ICD-11 oraz mapowanie zwrotne.
+3. **Wikidata SPARQL Knowledge Graph**:
+   - Właściwości: `wdt:P2175` (*medical condition treated*), `wdt:P7807` (*ICD-11 Foundation ID*), `wdt:P7329` (*ICD-11 MMS code*), `wdt:P494` / `wdt:P4229` (*ICD-10 / ICD-10-CM*).
+
+### 7.2 Schemat Wielopoziomowego Rozpoznawania (Multi-Layer Resolution)
+1. **Poziom 1 (Foundation ID $\to$ ICD-11 XML)**: Dopasowanie po unikalnym ID encji WHO (`icd11_foundation_id`) pobiera kanoniczną polską nazwę medyczną oraz kod MMS.
+2. **Poziom 2 (MMS Code $\to$ ICD-11 XML)**: Wyszukanie po kodzie linearyzacji MMS.
+3. **Poziom 3 (Translacja ICD-10 $\to$ ICD-11)**: Gdy encja posiada jedynie kod ICD-10, następuje automatyczne przetłumaczenie na ICD-11 MMS oraz Foundation URI za pomocą tabeli przejścia.
+4. **Poziom 4 (Mapowanie Zwrotne ICD-11 $\to$ ICD-10)**: Uzupełnienie brakujących kodów ICD-10 na podstawie powiązanych identyfikatorów ICD-11.
