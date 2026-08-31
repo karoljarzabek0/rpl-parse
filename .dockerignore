@@ -5,28 +5,33 @@
 .vscode
 
 # Rust build artifacts
-target/
+target
 Cargo.lock
 
 # Python artifacts
 python/.venv
+**/.venv
+**/venv
 **/__pycache__
 **/*.pyc
 **/*.pyo
 **/*.pyd
 .pytest_cache
 
-# Large Local Data & Databases (Downloaded dynamically from S3 at runtime)
-data/*.db
-data/*.db-wal
-data/*.db-shm
+# Large Local Data & Databases
+data/rpl_2026*
 data/*.db.zst
 data/*.xml
 data/*.npz
+data/ods_products.json
 data/demo_rpl.db
 data/embeddings.db
+data/cache_cen
+data/icd_raw
+data/rpl.db-wal
+data/rpl.db-shm
 
 # Documentation & Scratch
-docs/
-examples/
+docs
+examples
 *.md

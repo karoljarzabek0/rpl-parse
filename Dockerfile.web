@@ -1,0 +1,68 @@
+# ==============================================================================
+# Multi-Stage Lean Dockerfile for powlekane.pl Web & Search Engine
+# Includes: Bun.js SSR, Python FastAPI, SQLite Extensions (vec0, morfeusz), Embedded DB
+# ==============================================================================
+
+# 1. Grab official Bun runtime binary
+FROM oven/bun:1-slim AS bun-runtime
+
+# 2. Main Application Image
+FROM python:3.12-slim-bookworm
+
+LABEL maintainer="karol@example.com"
+LABEL description="powlekane.pl Medical Search Engine (FastAPI + Bun.js SSR + Embedded SQLite)"
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PORT=3000 \
+    API_BACKEND="http://127.0.0.1:8000" \
+    EMBEDDING_SERVICE_URL="http://powlekane-embeddings-service:8080" \
+    DB_PATH="/app/data/rpl.db" \
+    VEC_EXT_PATH="/app/extensions/vec0.so" \
+    MORFEUSZ_EXT_PATH="/app/extensions/morfeusz.so" \
+    LD_LIBRARY_PATH="/app/extensions:/usr/lib:${LD_LIBRARY_PATH}"
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    ca-certificates \
+    libstdc++6 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy Bun binary from official image
+COPY --from=bun-runtime /usr/local/bin/bun /usr/local/bin/bun
+
+WORKDIR /app
+
+# Install Lean Python dependencies (Fast and light)
+RUN pip install --no-cache-dir \
+    fastapi \
+    uvicorn \
+    numpy \
+    requests \
+    pydantic
+
+# Copy SQLite extensions (vec0, morfeusz, libmorfeusz2)
+COPY extensions/ /app/extensions/
+
+# Copy ATC taxonomies and dictionaries
+COPY data/atc_map.json data/atc_hierarchy.json /app/data/
+
+# Copy embedded SQLite database
+COPY data/rpl.db /app/data/rpl.db
+
+# Copy Python backend code
+COPY python/api_server.py /app/python/api_server.py
+
+# Copy Web frontend (Bun.js & static assets)
+COPY web/ /app/web/
+
+# Copy Entrypoint script
+COPY entrypoint_web.sh /app/entrypoint_web.sh
+RUN chmod +x /app/entrypoint_web.sh
+
+EXPOSE 3000
+
+HEALTHCHECK --interval=10s --timeout=3s --start-period=10s --retries=3 \
+    CMD curl -f http://localhost:3000/api/stats || exit 1
+
+ENTRYPOINT ["/app/entrypoint_web.sh"]

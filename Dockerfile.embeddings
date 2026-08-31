@@ -1,0 +1,45 @@
+# ==============================================================================
+# Dedicated Microservice for PolDense-400M Vector Embeddings (PyTorch CPU)
+# ==============================================================================
+FROM python:3.12-slim-bookworm
+
+LABEL maintainer="karol@example.com"
+LABEL description="PolDense-400M Microservice (SentenceTransformer on CPU)"
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PORT=8080 \
+    EMBED_NUM_THREADS=2 \
+    HF_HOME="/app/cache/huggingface"
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    ca-certificates \
+    libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Install all dependencies in one resolution step
+RUN pip install --no-cache-dir \
+    torch \
+    transformers \
+    sentence-transformers \
+    fastapi \
+    uvicorn \
+    pydantic \
+    numpy \
+    --extra-index-url https://download.pytorch.org/whl/cpu
+
+# Copy embedding microservice code
+COPY python/embedding_service.py /app/python/embedding_service.py
+
+# Pre-download and cache model weights during build so startup is instantaneous
+RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('OPI-PIB/PolDense-400M', device='cpu')"
+
+EXPOSE 8080
+
+HEALTHCHECK --interval=10s --timeout=3s --start-period=15s --retries=3 \
+    CMD curl -f http://localhost:8080/health || exit 1
+
+ENTRYPOINT ["python", "python/embedding_service.py"]

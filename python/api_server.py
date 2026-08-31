@@ -11,12 +11,21 @@ import re
 from typing import List, Dict, Any, Optional
 
 import numpy as np
-import torch
+try:
+    import torch
+except ImportError:
+    torch = None
+
+try:
+    from sentence_transformers import SentenceTransformer
+except ImportError:
+    SentenceTransformer = None
+
 from fastapi import FastAPI, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from sentence_transformers import SentenceTransformer
 import uvicorn
+import requests
 
 app = FastAPI(title="RPL Hybrid RRF Search API", version="1.0.0")
 
@@ -28,12 +37,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-MODEL_NAME = "OPI-PIB/PolDense-400M"
-DB_PATH = "data/rpl.db"
+MODEL_NAME = os.environ.get("MODEL_NAME", "OPI-PIB/PolDense-400M")
+EMBEDDING_SERVICE_URL = os.environ.get("EMBEDDING_SERVICE_URL", "").rstrip("/")
+DB_PATH = os.environ.get("DB_PATH", "data/rpl.db")
 ATC_MAP_PATH = "data/atc_map.json"
 ATC_HIERARCHY_PATH = "data/atc_hierarchy.json"
-VEC_EXT_PATH = "extensions/vec0.so"
-MORFEUSZ_EXT_PATH = "extensions/morfeusz.so"
+VEC_EXT_PATH = os.environ.get("VEC_EXT_PATH", "extensions/vec0.so")
+MORFEUSZ_EXT_PATH = os.environ.get("MORFEUSZ_EXT_PATH", "extensions/morfeusz.so")
 
 # Global state
 state: Dict[str, Any] = {
@@ -41,7 +51,7 @@ state: Dict[str, Any] = {
     "atc_map": {},
     "atc_hierarchy": {},
     "db_conn": None,
-    "device": "cuda" if torch.cuda.is_available() else "cpu"
+    "device": "cuda" if (torch and torch.cuda.is_available()) else "cpu"
 }
 
 
@@ -175,15 +185,22 @@ def get_medicine_metadata(conn: sqlite3.Connection, produkt_id: int, atc_map: Di
 
 @app.on_event("startup")
 def startup_event():
-    print(f"Loading PolDense-400M on {state['device']}...")
-    state["model"] = SentenceTransformer(
-        MODEL_NAME,
-        device=state["device"],
-        model_kwargs={
-            "torch_dtype": torch.bfloat16 if state["device"] == "cuda" else torch.float32,
-            "attn_implementation": "sdpa"
-        }
-    )
+    if EMBEDDING_SERVICE_URL:
+        print(f"🔗 Using external embedding microservice at: {EMBEDDING_SERVICE_URL}", flush=True)
+    elif SentenceTransformer is not None:
+        print(f"Loading PolDense-400M on {state['device']}...", flush=True)
+        model_kwargs = {}
+        if torch:
+            model_kwargs["torch_dtype"] = torch.bfloat16 if state["device"] == "cuda" else torch.float32
+            model_kwargs["attn_implementation"] = "sdpa"
+        state["model"] = SentenceTransformer(
+            MODEL_NAME,
+            device=state["device"],
+            model_kwargs=model_kwargs
+        )
+    else:
+        print("⚠️ No local SentenceTransformers installed and no EMBEDDING_SERVICE_URL set. Vector search disabled.", flush=True)
+
     if os.path.exists(ATC_MAP_PATH):
         with open(ATC_MAP_PATH, "r", encoding="utf-8") as f:
             state["atc_map"] = json.load(f)
@@ -191,21 +208,24 @@ def startup_event():
     if os.path.exists(ATC_HIERARCHY_PATH):
         with open(ATC_HIERARCHY_PATH, "r", encoding="utf-8") as f:
             state["atc_hierarchy"] = json.load(f)
-        print(f"Loaded {len(state['atc_hierarchy'])} ATC hierarchy nodes from {ATC_HIERARCHY_PATH}")
+        print(f"Loaded {len(state['atc_hierarchy'])} ATC hierarchy nodes from {ATC_HIERARCHY_PATH}", flush=True)
 
     state["db_conn"] = get_db_connection()
-    print("API Server & PolDense-400M ready!")
+    print("✅ API Server & Database ready!", flush=True)
 
 
-import boto3
-from botocore.config import Config
+try:
+    import boto3
+    from botocore.config import Config
 
-s3_client = boto3.client(
-    "s3",
-    endpoint_url="https://s3.waw.io.cloud.ovh.net",
-    region_name="waw",
-    config=Config(s3={"addressing_style": "path"})
-)
+    s3_client = boto3.client(
+        "s3",
+        endpoint_url="https://s3.waw.io.cloud.ovh.net",
+        region_name="waw",
+        config=Config(s3={"addressing_style": "path"})
+    )
+except ImportError:
+    s3_client = None
 
 
 @app.get("/api/stats")
@@ -867,24 +887,42 @@ def search(
 
     # 1. Dense Vector Search
     if mode in ["rrf", "vec"]:
-        prefixed_query = f"[query]: {query_clean}"
-        query_vec = model.encode(
-            prefixed_query,
-            convert_to_numpy=True,
-            show_progress_bar=False,
-            normalize_embeddings=True
-        ).astype(np.float32)
+        query_vec = None
+        if EMBEDDING_SERVICE_URL:
+            try:
+                resp = requests.post(
+                    f"{EMBEDDING_SERVICE_URL}/embed",
+                    json={"text": query_clean, "prefix_query": True},
+                    timeout=3.0
+                )
+                if resp.status_code == 200:
+                    emb_list = resp.json().get("embedding")
+                    if emb_list:
+                        query_vec = np.array(emb_list, dtype=np.float32)
+                else:
+                    print(f"⚠️ Embedding service returned HTTP {resp.status_code}: {resp.text}", flush=True)
+            except Exception as e:
+                print(f"⚠️ Error reaching embedding service at {EMBEDDING_SERVICE_URL}: {e}", flush=True)
+        elif state.get("model") is not None:
+            prefixed_query = f"[query]: {query_clean}"
+            query_vec = state["model"].encode(
+                prefixed_query,
+                convert_to_numpy=True,
+                show_progress_bar=False,
+                normalize_embeddings=True
+            ).astype(np.float32)
 
-        c.execute("""
-            SELECT produkt_id, distance
-            FROM vec_dokumenty
-            WHERE embedding MATCH ? AND k = ?
-        """, (query_vec.tobytes(), effective_pool))
+        if query_vec is not None:
+            c.execute("""
+                SELECT produkt_id, distance
+                FROM vec_dokumenty
+                WHERE embedding MATCH ? AND k = ?
+            """, (query_vec.tobytes(), effective_pool))
 
-        for rank, row in enumerate(c.fetchall(), 1):
-            pid = int(row["produkt_id"])
-            vec_ranks[pid] = rank
-            vec_distances[pid] = float(row["distance"])
+            for rank, row in enumerate(c.fetchall(), 1):
+                pid = int(row["produkt_id"])
+                vec_ranks[pid] = rank
+                vec_distances[pid] = float(row["distance"])
 
     # 2. Sparse FTS5 Search with Morfeusz Snippet
     if mode in ["rrf", "fts"]:
